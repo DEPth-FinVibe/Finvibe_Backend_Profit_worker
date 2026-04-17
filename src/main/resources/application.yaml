@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: finvibe-profit-worker
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: profit-worker
+      auto-offset-reset: latest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+        spring.json.use.type.headers: false
+        spring.json.value.default.type: depth.finvibe.profit.worker.consumer.dto.StockPriceUpdatedEvent
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+worker:
+  coalescing:
+    window-seconds: ${COALESCING_WINDOW_SECONDS:10}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
