@@ -21,7 +21,7 @@ spring:
 
 worker:
   coalescing:
-    window-seconds: ${COALESCING_WINDOW_SECONDS:10}
+    window-seconds: ${COALESCING_WINDOW_SECONDS:1}
 
 management:
   endpoints:
