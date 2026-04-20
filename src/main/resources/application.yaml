@@ -22,6 +22,8 @@ spring:
 worker:
   coalescing:
     window-seconds: ${COALESCING_WINDOW_SECONDS:1}
+  realtime-profit-update:
+    enabled: false
 
 management:
   endpoints:

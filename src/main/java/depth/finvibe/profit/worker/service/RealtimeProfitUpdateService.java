@@ -10,6 +10,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -46,11 +47,18 @@ public class RealtimeProfitUpdateService {
 	private final UserProfitSummaryRedisRepository userProfitSummaryRedisRepository;
 	private final CurrentPriceCache currentPriceCache;
 	private final MeterRegistry meterRegistry;
+	@Value("${worker.realtime-profit-update.enabled:true}")
+	private boolean realtimeProfitUpdateEnabled;
 
 	@Scheduled(fixedRateString = "${worker.coalescing.window-seconds:10}000")
 	public void flush() {
 		Map<Long, StockPriceUpdatedEvent> events = priceCoalescingBuffer.drainAll();
 		if (events.isEmpty()) {
+			return;
+		}
+
+		if (!realtimeProfitUpdateEnabled) {
+			log.info("Realtime profit update disabled. Drained {} coalesced stock events without processing", events.size());
 			return;
 		}
 
