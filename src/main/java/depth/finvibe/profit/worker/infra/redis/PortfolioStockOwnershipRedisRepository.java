@@ -1,26 +1,43 @@
 package depth.finvibe.profit.worker.infra.redis;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Repository;
+
+import java.util.Collections;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /***
  * 특정 종목을 보유하고 있는 포트폴리오의 리스트를 CRUD
  */
 @RequiredArgsConstructor
+@Repository
 public class PortfolioStockOwnershipRedisRepository {
-    private final String KEY_PREFIX = "portfolio-stock-ownership";
+    private static final String KEY_PREFIX = "profit:stock";
 
-    private final RedisTemplate<String, Long> redisTemplate;
+    private final StringRedisTemplate redisTemplate;
 
-    void registerPortfolioTo(Long stockId, Long portfolioId) {
-        redisTemplate.opsForSet().add(keyOf(stockId), portfolioId);
+    public void registerPortfolioTo(Long stockId, Long portfolioId) {
+        redisTemplate.opsForSet().add(keyOf(stockId), portfolioId.toString());
     }
 
-    void unregisterPortfolioFrom(Long stockId, Long portfolioId) {
-        redisTemplate.opsForSet().remove(keyOf(stockId), portfolioId);
+    public void unregisterPortfolioFrom(Long stockId, Long portfolioId) {
+        redisTemplate.opsForSet().remove(keyOf(stockId), portfolioId.toString());
+    }
+
+    public Set<Long> findPortfolioIdsByStockId(Long stockId) {
+        Set<String> portfolioIds = redisTemplate.opsForSet().members(keyOf(stockId));
+        if (portfolioIds == null || portfolioIds.isEmpty()) {
+            return Collections.emptySet();
+        }
+
+        return portfolioIds.stream()
+                .map(Long::valueOf)
+                .collect(Collectors.toUnmodifiableSet());
     }
 
     private String keyOf(Long stockId) {
-        return KEY_PREFIX + ":" + stockId.toString();
+        return KEY_PREFIX + ":" + stockId + ":portfolios";
     }
 }

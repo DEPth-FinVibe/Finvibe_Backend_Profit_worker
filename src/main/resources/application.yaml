@@ -20,10 +20,16 @@ spring:
       port: ${REDIS_PORT:6379}
 
 worker:
+  kafka:
+    topics:
+      stock-price-updated: ${STOCK_PRICE_UPDATED_TOPIC:market.stock-price-updated.v1}
   coalescing:
     window-seconds: ${COALESCING_WINDOW_SECONDS:1}
   realtime-profit-update:
     enabled: false
+  profit:
+    executor-type: ${PROFIT_EXECUTOR_TYPE:fixed}
+    thread-count: ${PROFIT_THREAD_COUNT:0}
 
 management:
   endpoints:
