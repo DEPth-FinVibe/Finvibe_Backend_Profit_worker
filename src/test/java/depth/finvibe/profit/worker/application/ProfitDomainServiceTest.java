@@ -1,11 +1,11 @@
 package depth.finvibe.profit.worker.application;
 
+import depth.finvibe.profit.worker.application.port.out.PortfolioProfitRepository;
+import depth.finvibe.profit.worker.application.port.out.PortfolioProfitUpdateResult;
+import depth.finvibe.profit.worker.application.port.out.PortfolioStockOwnershipRepository;
+import depth.finvibe.profit.worker.application.port.out.PortfolioUserOwnershipRepository;
+import depth.finvibe.profit.worker.application.port.out.UserProfitRepository;
 import depth.finvibe.profit.worker.dto.ProfitDto;
-import depth.finvibe.profit.worker.infra.redis.PortfolioProfitRedisRepository;
-import depth.finvibe.profit.worker.infra.redis.PortfolioProfitUpdateResult;
-import depth.finvibe.profit.worker.infra.redis.PortfolioStockOwnershipRedisRepository;
-import depth.finvibe.profit.worker.infra.redis.PortfolioUserOwnershipRedisRepository;
-import depth.finvibe.profit.worker.infra.redis.UserProfitRedisRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -23,16 +23,16 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class ProfitDomainServiceTest {
     @Mock
-    private PortfolioStockOwnershipRedisRepository portfolioStockOwnershipRepository;
+    private PortfolioStockOwnershipRepository portfolioStockOwnershipRepository;
 
     @Mock
-    private PortfolioUserOwnershipRedisRepository portfolioUserOwnershipRepository;
+    private PortfolioUserOwnershipRepository portfolioUserOwnershipRepository;
 
     @Mock
-    private PortfolioProfitRedisRepository portfolioProfitRepository;
+    private PortfolioProfitRepository portfolioProfitRepository;
 
     @Mock
-    private UserProfitRedisRepository userProfitRepository;
+    private UserProfitRepository userProfitRepository;
 
     private final Executor profitUpdateExecutor = Runnable::run;
 

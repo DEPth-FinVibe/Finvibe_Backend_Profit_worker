@@ -1,12 +1,12 @@
 package depth.finvibe.profit.worker.application;
 
 import depth.finvibe.profit.worker.application.port.in.ProfitUseCase;
+import depth.finvibe.profit.worker.application.port.out.PortfolioProfitRepository;
+import depth.finvibe.profit.worker.application.port.out.PortfolioProfitUpdateResult;
+import depth.finvibe.profit.worker.application.port.out.PortfolioStockOwnershipRepository;
+import depth.finvibe.profit.worker.application.port.out.PortfolioUserOwnershipRepository;
+import depth.finvibe.profit.worker.application.port.out.UserProfitRepository;
 import depth.finvibe.profit.worker.dto.ProfitDto;
-import depth.finvibe.profit.worker.infra.redis.PortfolioProfitRedisRepository;
-import depth.finvibe.profit.worker.infra.redis.PortfolioProfitUpdateResult;
-import depth.finvibe.profit.worker.infra.redis.PortfolioStockOwnershipRedisRepository;
-import depth.finvibe.profit.worker.infra.redis.PortfolioUserOwnershipRedisRepository;
-import depth.finvibe.profit.worker.infra.redis.UserProfitRedisRepository;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
@@ -17,17 +17,17 @@ import java.util.concurrent.Executor;
 
 @Service
 public class ProfitDomainService implements ProfitUseCase {
-    private final PortfolioStockOwnershipRedisRepository portfolioStockOwnershipRepository;
-    private final PortfolioUserOwnershipRedisRepository portfolioUserOwnershipRepository;
-    private final PortfolioProfitRedisRepository portfolioProfitRepository;
-    private final UserProfitRedisRepository userProfitRepository;
+    private final PortfolioStockOwnershipRepository portfolioStockOwnershipRepository;
+    private final PortfolioUserOwnershipRepository portfolioUserOwnershipRepository;
+    private final PortfolioProfitRepository portfolioProfitRepository;
+    private final UserProfitRepository userProfitRepository;
     private final Executor profitUpdateExecutor;
 
     public ProfitDomainService(
-            PortfolioStockOwnershipRedisRepository portfolioStockOwnershipRepository,
-            PortfolioUserOwnershipRedisRepository portfolioUserOwnershipRepository,
-            PortfolioProfitRedisRepository portfolioProfitRepository,
-            UserProfitRedisRepository userProfitRepository,
+            PortfolioStockOwnershipRepository portfolioStockOwnershipRepository,
+            PortfolioUserOwnershipRepository portfolioUserOwnershipRepository,
+            PortfolioProfitRepository portfolioProfitRepository,
+            UserProfitRepository userProfitRepository,
             @Qualifier("profitUpdateExecutor") Executor profitUpdateExecutor
     ) {
         this.portfolioStockOwnershipRepository = portfolioStockOwnershipRepository;

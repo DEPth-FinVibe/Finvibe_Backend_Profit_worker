@@ -1,5 +1,7 @@
 package depth.finvibe.profit.worker.infra.redis;
 
+import depth.finvibe.profit.worker.application.port.out.PortfolioProfitRepository;
+import depth.finvibe.profit.worker.application.port.out.PortfolioProfitUpdateResult;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -10,7 +12,7 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 
 @Repository
-public class PortfolioProfitRedisRepository {
+public class PortfolioProfitRedisRepository implements PortfolioProfitRepository {
     private static final String PORTFOLIO_KEY_PREFIX = "profit:portfolio";
 
     private final StringRedisTemplate redisTemplate;
@@ -25,6 +27,7 @@ public class PortfolioProfitRedisRepository {
         this.updatePortfolioProfitScript = script;
     }
 
+    @Override
     public PortfolioProfitUpdateResult updateByStockPrice(Long portfolioId, Long stockId, Double newPrice) {
         List<String> keys = List.of(portfolioKeyOf(portfolioId), holdingKeyOf(portfolioId, stockId));
         List<?> result = redisTemplate.execute(updatePortfolioProfitScript, keys, newPrice.toString());

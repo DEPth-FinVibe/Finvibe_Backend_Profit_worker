@@ -1,5 +1,7 @@
 package depth.finvibe.profit.worker.infra.redis;
 
+import depth.finvibe.profit.worker.application.port.out.UserProfitRepository;
+import depth.finvibe.profit.worker.application.port.out.UserProfitUpdateResult;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -10,7 +12,7 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 
 @Repository
-public class UserProfitRedisRepository {
+public class UserProfitRedisRepository implements UserProfitRepository {
     private static final String USER_KEY_PREFIX = "profit:user";
     private static final String USER_RETURN_RATE_RANKING_KEY = "profit:user:return-rate-ranking";
 
@@ -26,6 +28,7 @@ public class UserProfitRedisRepository {
         this.updateUserProfitScript = script;
     }
 
+    @Override
     public UserProfitUpdateResult updateReturnRateAndRanking(
             Long userId,
             Double oldPortfolioUnrealizedProfit,

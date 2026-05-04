@@ -1,4 +1,4 @@
-package depth.finvibe.profit.worker.infra.redis;
+package depth.finvibe.profit.worker.application.port.out;
 
 public record UserProfitUpdateResult(
         Double oldUserUnrealizedProfit,

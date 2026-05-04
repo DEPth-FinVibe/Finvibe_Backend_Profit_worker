@@ -1,5 +1,6 @@
 package depth.finvibe.profit.worker.infra.redis;
 
+import depth.finvibe.profit.worker.application.port.out.PortfolioStockOwnershipRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Repository;
@@ -13,19 +14,22 @@ import java.util.stream.Collectors;
  */
 @RequiredArgsConstructor
 @Repository
-public class PortfolioStockOwnershipRedisRepository {
+public class PortfolioStockOwnershipRedisRepository implements PortfolioStockOwnershipRepository {
     private static final String KEY_PREFIX = "profit:stock";
 
     private final StringRedisTemplate redisTemplate;
 
+    @Override
     public void registerPortfolioTo(Long stockId, Long portfolioId) {
         redisTemplate.opsForSet().add(keyOf(stockId), portfolioId.toString());
     }
 
+    @Override
     public void unregisterPortfolioFrom(Long stockId, Long portfolioId) {
         redisTemplate.opsForSet().remove(keyOf(stockId), portfolioId.toString());
     }
 
+    @Override
     public Set<Long> findPortfolioIdsByStockId(Long stockId) {
         Set<String> portfolioIds = redisTemplate.opsForSet().members(keyOf(stockId));
         if (portfolioIds == null || portfolioIds.isEmpty()) {
