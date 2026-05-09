@@ -1,5 +1,7 @@
 package depth.finvibe.profit.worker.application;
 
+import depth.finvibe.profit.worker.application.exception.ProfitCacheMissException;
+import depth.finvibe.profit.worker.application.exception.ProfitCacheMissReason;
 import depth.finvibe.profit.worker.application.port.out.PortfolioProfitRepository;
 import depth.finvibe.profit.worker.application.port.out.PortfolioProfitUpdateResult;
 import depth.finvibe.profit.worker.application.port.out.PortfolioStockOwnershipRepository;
@@ -16,6 +18,7 @@ import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.Executor;
 
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -34,6 +37,9 @@ class ProfitDomainServiceTest {
     @Mock
     private UserProfitRepository userProfitRepository;
 
+    @Mock
+    private ProfitCacheHydrationService profitCacheHydrationService;
+
     private final Executor profitUpdateExecutor = Runnable::run;
 
     private ProfitDomainService profitDomainService;
@@ -45,6 +51,7 @@ class ProfitDomainServiceTest {
                 portfolioUserOwnershipRepository,
                 portfolioProfitRepository,
                 userProfitRepository,
+                profitCacheHydrationService,
                 profitUpdateExecutor
         );
     }
@@ -75,6 +82,50 @@ class ProfitDomainServiceTest {
         profitDomainService.updateProfits(request);
 
         verify(userProfitRepository).updateReturnRateAndRanking(100L, 1_000.0, 2_000.0);
+    }
+
+    @Test
+    void updateProfitsHydratesCacheAndRetriesOnceWhenCacheMissOccurs() {
+        ProfitDto.ProfitRecalculateRequest request = request(1L, 50_000.0);
+        ProfitCacheMissException cacheMissException = new ProfitCacheMissException(
+                1L,
+                10L,
+                null,
+                ProfitCacheMissReason.PORTFOLIO_HOLDING_MISSING
+        );
+
+        when(portfolioStockOwnershipRepository.findPortfolioIdsByStockId(1L))
+                .thenReturn(Set.of(10L));
+        when(portfolioProfitRepository.updateByStockPrice(10L, 1L, 50_000.0))
+                .thenThrow(cacheMissException)
+                .thenReturn(new PortfolioProfitUpdateResult(1_000.0, 2_000.0, 0.1, 0.2));
+        when(portfolioUserOwnershipRepository.findUserIdByPortfolioId(10L))
+                .thenReturn(100L);
+
+        profitDomainService.updateProfits(request);
+
+        verify(profitCacheHydrationService).hydrate(cacheMissException);
+        verify(userProfitRepository).updateReturnRateAndRanking(100L, 1_000.0, 2_000.0);
+    }
+
+    @Test
+    void updateProfitsDoesNotHydrateMoreThanOnce() {
+        ProfitDto.ProfitRecalculateRequest request = request(1L, 50_000.0);
+        ProfitCacheMissException cacheMissException = new ProfitCacheMissException(
+                1L,
+                10L,
+                null,
+                ProfitCacheMissReason.PORTFOLIO_HOLDING_MISSING
+        );
+
+        when(portfolioStockOwnershipRepository.findPortfolioIdsByStockId(1L))
+                .thenReturn(Set.of(10L));
+        when(portfolioProfitRepository.updateByStockPrice(10L, 1L, 50_000.0))
+                .thenThrow(cacheMissException);
+
+        assertThrows(ProfitCacheMissException.class, () -> profitDomainService.updateProfits(request));
+
+        verify(profitCacheHydrationService).hydrate(cacheMissException);
     }
 
     private ProfitDto.ProfitRecalculateRequest request(Long stockId, Double newPrice) {
