@@ -19,22 +19,6 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
 
-worker:
-  kafka:
-    topics:
-      stock-price-updated: ${STOCK_PRICE_UPDATED_TOPIC:market.stock-price-updated.v1}
-  coalescing:
-    window-seconds: ${COALESCING_WINDOW_SECONDS:1}
-  realtime-profit-update:
-    enabled: false
-  profit:
-    executor-type: ${PROFIT_EXECUTOR_TYPE:fixed}
-    thread-count: ${PROFIT_THREAD_COUNT:0}
-  monolith:
-    base-url: ${MONOLITH_BASE_URL:http://localhost:8080}
-    connect-timeout-ms: ${MONOLITH_CONNECT_TIMEOUT_MS:1000}
-    read-timeout-ms: ${MONOLITH_READ_TIMEOUT_MS:3000}
-
 management:
   endpoints:
     web:
