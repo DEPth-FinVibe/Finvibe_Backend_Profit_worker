@@ -104,6 +104,36 @@ class ProfitCalculateServiceTest {
         public Long findAssetCount(Long portfolioId) {
             return assetCounts.get(portfolioId);
         }
+
+        @Override
+        public boolean addPortfolioStock(Long stockId, Long portfolioId) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public boolean removePortfolioStock(Long stockId, Long portfolioId) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void addPurchasedValue(Long portfolioId, Long amount) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void subtractPurchasedValue(Long portfolioId, Long amount) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void increaseAssetCount(Long portfolioId) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void decreaseAssetCount(Long portfolioId) {
+            throw new UnsupportedOperationException();
+        }
     }
 
     private static class FakeUserStateStore implements UserStateStore {
@@ -139,6 +169,36 @@ class ProfitCalculateServiceTest {
         @Override
         public Long findPortfolioCount(Long userId) {
             return portfolioCounts.get(userId);
+        }
+
+        @Override
+        public void mapPortfolioToUser(Long portfolioId, Long userId) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void removePortfolioUserMapping(Long portfolioId) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void addPurchasedValue(Long userId, Long amount) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void subtractPurchasedValue(Long userId, Long amount) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void increasePortfolioCount(Long userId) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void decreasePortfolioCount(Long userId) {
+            throw new UnsupportedOperationException();
         }
     }
 
