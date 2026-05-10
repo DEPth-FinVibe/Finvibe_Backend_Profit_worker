@@ -32,13 +32,16 @@ public class CacheUpdateService implements CacheUpdateUseCase {
     public void updatePortfolioCache(CacheUpdateDto.PortfolioCacheUpdateRequest req) {
         Long portfolioId = Objects.requireNonNull(req.getPortfolioId(), "portfolioId must not be null");
         Long stockId = Objects.requireNonNull(req.getStockId(), "stockId must not be null");
-        Long amount = Objects.requireNonNull(req.getAmount(), "amount must not be null");
+        Long price = Objects.requireNonNull(req.getPrice(), "price must not be null");
+        Long quantity = Objects.requireNonNull(req.getQuantity(), "quantity must not be null");
         CacheUpdateDto.PortfolioCacheUpdateRequest.TradeType type =
                 Objects.requireNonNull(req.getType(), "type must not be null");
 
+        Long amount = price * quantity;
+
         switch (type) {
-            case STOCK_BUY -> updatePortfolioCacheByStockBuy(portfolioId, stockId, amount);
-            case STOCK_SELL -> updatePortfolioCacheByStockSell(portfolioId, stockId, amount);
+            case STOCK_BUY -> updatePortfolioCacheByStockBuy(portfolioId, stockId, quantity, amount);
+            case STOCK_SELL -> updatePortfolioCacheByStockSell(portfolioId, stockId, quantity, amount);
         }
     }
 
@@ -57,18 +60,22 @@ public class CacheUpdateService implements CacheUpdateUseCase {
         }
     }
 
-    private void updatePortfolioCacheByStockBuy(Long portfolioId, Long stockId, Long amount) {
-        boolean added = portfolioStateStore.addPortfolioStock(stockId, portfolioId);
+    private void updatePortfolioCacheByStockBuy(Long portfolioId, Long stockId, Long quantity, Long amount) {
+        boolean added = portfolioStateStore.increaseStockQuantity(stockId, portfolioId, quantity);
         portfolioStateStore.addPurchasedValue(portfolioId, amount);
+        portfolioStateStore.addCurrentValue(portfolioId, amount);
+        portfolioStateStore.addStockCurrentValue(stockId, portfolioId, amount);
 
         if (added) {
             portfolioStateStore.increaseAssetCount(portfolioId);
         }
     }
 
-    private void updatePortfolioCacheByStockSell(Long portfolioId, Long stockId, Long amount) {
-        boolean removed = portfolioStateStore.removePortfolioStock(stockId, portfolioId);
+    private void updatePortfolioCacheByStockSell(Long portfolioId, Long stockId, Long quantity, Long amount) {
+        boolean removed = portfolioStateStore.decreaseStockQuantity(stockId, portfolioId, quantity);
         portfolioStateStore.subtractPurchasedValue(portfolioId, amount);
+        portfolioStateStore.subtractCurrentValue(portfolioId, amount);
+        portfolioStateStore.subtractStockCurrentValue(stockId, portfolioId, amount);
 
         if (removed) {
             portfolioStateStore.decreaseAssetCount(portfolioId);

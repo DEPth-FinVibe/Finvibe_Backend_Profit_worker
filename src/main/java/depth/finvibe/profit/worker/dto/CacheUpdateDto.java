@@ -18,7 +18,9 @@ public class CacheUpdateDto {
 
         private TradeType type;
 
-        private Long amount; // 원화 단위
+        private Long price; // 원화 단위
+
+        private Long quantity;
 
         public enum TradeType {
             STOCK_BUY,

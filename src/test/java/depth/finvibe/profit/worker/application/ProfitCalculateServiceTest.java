@@ -106,12 +106,12 @@ class ProfitCalculateServiceTest {
         }
 
         @Override
-        public boolean addPortfolioStock(Long stockId, Long portfolioId) {
+        public boolean increaseStockQuantity(Long stockId, Long portfolioId, Long quantity) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public boolean removePortfolioStock(Long stockId, Long portfolioId) {
+        public boolean decreaseStockQuantity(Long stockId, Long portfolioId, Long quantity) {
             throw new UnsupportedOperationException();
         }
 
@@ -122,6 +122,26 @@ class ProfitCalculateServiceTest {
 
         @Override
         public void subtractPurchasedValue(Long portfolioId, Long amount) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void addCurrentValue(Long portfolioId, Long amount) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void subtractCurrentValue(Long portfolioId, Long amount) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void addStockCurrentValue(Long stockId, Long portfolioId, Long amount) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void subtractStockCurrentValue(Long stockId, Long portfolioId, Long amount) {
             throw new UnsupportedOperationException();
         }
 

@@ -42,22 +42,24 @@ public interface PortfolioStateStore {
     Long findAssetCount(Long portfolioId);
 
     /**
-     * 종목을 보유 포트폴리오 인덱스에 추가한다.
+     * 포트폴리오의 종목 보유 수량을 증가시킨다.
      *
      * @param stockId 종목 ID
      * @param portfolioId 포트폴리오 ID
-     * @return 기존에 없던 관계가 새로 추가되었으면 true
+     * @param quantity 증가시킬 수량
+     * @return 기존 수량이 0이었다가 새로 보유하게 되었으면 true
      */
-    boolean addPortfolioStock(Long stockId, Long portfolioId);
+    boolean increaseStockQuantity(Long stockId, Long portfolioId, Long quantity);
 
     /**
-     * 종목을 보유 포트폴리오 인덱스에서 제거한다.
+     * 포트폴리오의 종목 보유 수량을 감소시킨다.
      *
      * @param stockId 종목 ID
      * @param portfolioId 포트폴리오 ID
-     * @return 기존 관계가 실제로 제거되었으면 true
+     * @param quantity 감소시킬 수량
+     * @return 감소 후 수량이 0이 되어 보유 관계가 제거되었으면 true
      */
-    boolean removePortfolioStock(Long stockId, Long portfolioId);
+    boolean decreaseStockQuantity(Long stockId, Long portfolioId, Long quantity);
 
     /**
      * 포트폴리오 총 구매액에 금액을 더한다.
@@ -74,6 +76,40 @@ public interface PortfolioStateStore {
      * @param amount 뺄 원화 금액
      */
     void subtractPurchasedValue(Long portfolioId, Long amount);
+
+    /**
+     * 포트폴리오 평가액에 금액을 더한다.
+     *
+     * @param portfolioId 포트폴리오 ID
+     * @param amount 더할 원화 금액
+     */
+    void addCurrentValue(Long portfolioId, Long amount);
+
+    /**
+     * 포트폴리오 평가액에서 금액을 뺀다.
+     *
+     * @param portfolioId 포트폴리오 ID
+     * @param amount 뺄 원화 금액
+     */
+    void subtractCurrentValue(Long portfolioId, Long amount);
+
+    /**
+     * 포트폴리오 내 특정 종목 평가액에 금액을 더한다.
+     *
+     * @param stockId 종목 ID
+     * @param portfolioId 포트폴리오 ID
+     * @param amount 더할 원화 금액
+     */
+    void addStockCurrentValue(Long stockId, Long portfolioId, Long amount);
+
+    /**
+     * 포트폴리오 내 특정 종목 평가액에서 금액을 뺀다.
+     *
+     * @param stockId 종목 ID
+     * @param portfolioId 포트폴리오 ID
+     * @param amount 뺄 원화 금액
+     */
+    void subtractStockCurrentValue(Long stockId, Long portfolioId, Long amount);
 
     /**
      * 포트폴리오 보유 종목 수를 1 증가시킨다.
