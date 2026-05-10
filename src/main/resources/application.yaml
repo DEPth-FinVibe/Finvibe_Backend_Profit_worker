@@ -2,6 +2,20 @@ spring:
   application:
     name: finvibe-profit-worker
 
+  datasource:
+    url: ${DB_URL:jdbc:h2:mem:profit_worker;MODE=MySQL;DATABASE_TO_UPPER=false}
+    username: ${DB_USERNAME:sa}
+    password: ${DB_PASSWORD:}
+    driver-class-name: ${DB_DRIVER_CLASS_NAME:org.h2.Driver}
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: ${JPA_DDL_AUTO:none}
+    properties:
+      hibernate:
+        format_sql: ${JPA_FORMAT_SQL:false}
+
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:

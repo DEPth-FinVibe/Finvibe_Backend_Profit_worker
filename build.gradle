@@ -20,6 +20,7 @@ repositories {
 dependencies {
 	// Spring Boot
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
 
 	// Messaging
@@ -31,6 +32,15 @@ dependencies {
 
 	// Monitoring
 	implementation 'io.micrometer:micrometer-registry-prometheus'
+
+	// QueryDSL
+	implementation 'com.querydsl:querydsl-jpa:5.1.0:jakarta'
+	annotationProcessor 'com.querydsl:querydsl-apt:5.1.0:jakarta'
+	annotationProcessor 'jakarta.annotation:jakarta.annotation-api'
+	annotationProcessor 'jakarta.persistence:jakarta.persistence-api'
+
+	// Database
+	runtimeOnly 'com.h2database:h2'
 
 	// Lombok
 	compileOnly 'org.projectlombok:lombok'
