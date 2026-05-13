@@ -14,17 +14,17 @@ public class RedisUserStateStore implements UserStateStore {
     private final StringRedisTemplate redisTemplate;
 
     @Override
-    public Long findUserIdByPortfolioId(Long portfolioId) {
-        return getLong(portfolioUserKey(portfolioId));
+    public String findUserIdByPortfolioId(Long portfolioId) {
+        return redisTemplate.opsForValue().get(portfolioUserKey(portfolioId));
     }
 
     @Override
-    public Long findPurchasedValue(Long userId) {
+    public Long findPurchasedValue(String userId) {
         return getLong(userPurchasedValueKey(userId));
     }
 
     @Override
-    public Long calculateCurrentValue(Long userId) {
+    public Long calculateCurrentValue(String userId) {
         Set<String> portfolioIds = redisTemplate.opsForSet().members(userPortfoliosKey(userId));
         if (portfolioIds == null) {
             return 0L;
@@ -37,43 +37,43 @@ public class RedisUserStateStore implements UserStateStore {
     }
 
     @Override
-    public Long findPortfolioCount(Long userId) {
+    public Long findPortfolioCount(String userId) {
         return getLong(userPortfolioCountKey(userId));
     }
 
     @Override
-    public void mapPortfolioToUser(Long portfolioId, Long userId) {
+    public void mapPortfolioToUser(Long portfolioId, String userId) { // 추후 정수 기반 UserID로 변경
         redisTemplate.opsForValue().set(portfolioUserKey(portfolioId), String.valueOf(userId));
         redisTemplate.opsForSet().add(userPortfoliosKey(userId), String.valueOf(portfolioId));
     }
 
     @Override
     public void removePortfolioUserMapping(Long portfolioId) {
-        Long userId = findUserIdByPortfolioId(portfolioId);
+        String userId = findUserIdByPortfolioId(portfolioId);
         redisTemplate.delete(portfolioUserKey(portfolioId));
 
-        if (userId != 0L) {
+        if (userId != null) {
             redisTemplate.opsForSet().remove(userPortfoliosKey(userId), String.valueOf(portfolioId));
         }
     }
 
     @Override
-    public void addPurchasedValue(Long userId, Long amount) {
+    public void addPurchasedValue(String userId, Long amount) {
         increment(userPurchasedValueKey(userId), amount);
     }
 
     @Override
-    public void subtractPurchasedValue(Long userId, Long amount) {
+    public void subtractPurchasedValue(String userId, Long amount) {
         increment(userPurchasedValueKey(userId), -amount);
     }
 
     @Override
-    public void increasePortfolioCount(Long userId) {
+    public void increasePortfolioCount(String userId) {
         increment(userPortfolioCountKey(userId), 1L);
     }
 
     @Override
-    public void decreasePortfolioCount(Long userId) {
+    public void decreasePortfolioCount(String userId) {
         increment(userPortfolioCountKey(userId), -1L);
     }
 
@@ -101,15 +101,15 @@ public class RedisUserStateStore implements UserStateStore {
         return "portfolio:" + portfolioId + ":current-value";
     }
 
-    private String userPurchasedValueKey(Long userId) {
+    private String userPurchasedValueKey(String userId) {
         return "user:" + userId + ":purchased-value";
     }
 
-    private String userPortfolioCountKey(Long userId) {
+    private String userPortfolioCountKey(String userId) {
         return "user:" + userId + ":portfolio-count";
     }
 
-    private String userPortfoliosKey(Long userId) {
+    private String userPortfoliosKey(String userId) {
         return "user:" + userId + ":portfolios";
     }
 }

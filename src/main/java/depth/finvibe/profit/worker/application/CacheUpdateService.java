@@ -51,7 +51,7 @@ public class CacheUpdateService implements CacheUpdateUseCase {
 
     @Override
     public void updateUserCache(CacheUpdateDto.UserCacheUpdateRequest request) {
-        Long userId = Objects.requireNonNull(request.getUserId(), "userId must not be null");
+        String userId = Objects.requireNonNull(request.getUserId(), "userId must not be null");
         Long portfolioId = Objects.requireNonNull(request.getPortfolioId(), "portfolioId must not be null");
         CacheUpdateDto.UserCacheUpdateRequest.ChangeType type =
                 Objects.requireNonNull(request.getType(), "type must not be null");
@@ -69,7 +69,7 @@ public class CacheUpdateService implements CacheUpdateUseCase {
         portfolioStateStore.addPurchasedValue(portfolioId, amount);
         portfolioStateStore.addCurrentValue(portfolioId, amount);
         portfolioStateStore.addStockCurrentValue(stockId, portfolioId, amount);
-        Long userId = userStateStore.findUserIdByPortfolioId(portfolioId);
+        String userId = userStateStore.findUserIdByPortfolioId(portfolioId);
 
         if (userId != null) {
             userStateStore.addPurchasedValue(userId, amount);
@@ -87,7 +87,7 @@ public class CacheUpdateService implements CacheUpdateUseCase {
         portfolioStateStore.subtractPurchasedValue(portfolioId, amount);
         portfolioStateStore.subtractCurrentValue(portfolioId, amount);
         portfolioStateStore.subtractStockCurrentValue(stockId, portfolioId, amount);
-        Long userId = userStateStore.findUserIdByPortfolioId(portfolioId);
+        String userId = userStateStore.findUserIdByPortfolioId(portfolioId);
 
         if (userId != null) {
             userStateStore.subtractPurchasedValue(userId, amount);
@@ -100,14 +100,14 @@ public class CacheUpdateService implements CacheUpdateUseCase {
         saveValuationSnapshot(portfolioId, userId);
     }
 
-    private void updateUserCacheByPortfolioCreated(Long userId, Long portfolioId, Long portfolioPurchasedValue) {
+    private void updateUserCacheByPortfolioCreated(String userId, Long portfolioId, Long portfolioPurchasedValue) {
         userStateStore.mapPortfolioToUser(portfolioId, userId);
         userStateStore.addPurchasedValue(userId, portfolioPurchasedValue);
         userStateStore.increasePortfolioCount(userId);
         saveUserValuationSnapshot(userId);
     }
 
-    private void updateUserCacheByPortfolioDeleted(Long userId, Long portfolioId, Long portfolioPurchasedValue) {
+    private void updateUserCacheByPortfolioDeleted(String userId, Long portfolioId, Long portfolioPurchasedValue) {
         userStateStore.removePortfolioUserMapping(portfolioId);
         userStateStore.subtractPurchasedValue(userId, portfolioPurchasedValue);
         userStateStore.decreasePortfolioCount(userId);
@@ -115,7 +115,7 @@ public class CacheUpdateService implements CacheUpdateUseCase {
         saveUserValuationSnapshot(userId);
     }
 
-    private void saveValuationSnapshot(Long portfolioId, Long userId) {
+    private void saveValuationSnapshot(Long portfolioId, String userId) {
         savePortfolioValuationSnapshot(portfolioId);
 
         if (userId != null) {
@@ -136,7 +136,7 @@ public class CacheUpdateService implements CacheUpdateUseCase {
                 .build());
     }
 
-    private void saveUserValuationSnapshot(Long userId) {
+    private void saveUserValuationSnapshot(String userId) {
         Long purchasedValue = userStateStore.findPurchasedValue(userId);
         Long currentValue = userStateStore.calculateCurrentValue(userId);
 

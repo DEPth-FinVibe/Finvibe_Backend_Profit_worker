@@ -29,7 +29,7 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
 
     @Override
     public void saveUserValuation(UserValuation valuation) {
-        Long userId = valuation.getUserId();
+        String userId = valuation.getUserId();
 
         set(userPurchasedValueKey(userId), valuation.getPurchasedValue());
         set(userCurrentValueKey(userId), valuation.getCurrentValue());
@@ -71,23 +71,23 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
         return "portfolio:" + portfolioId + ":updated-at";
     }
 
-    private String userPurchasedValueKey(Long userId) {
+    private String userPurchasedValueKey(String userId) {
         return "user:" + userId + ":purchased-value";
     }
 
-    private String userCurrentValueKey(Long userId) {
+    private String userCurrentValueKey(String userId) {
         return "user:" + userId + ":current-value";
     }
 
-    private String userProfitRateKey(Long userId) {
+    private String userProfitRateKey(String userId) {
         return "user:" + userId + ":profit-rate";
     }
 
-    private String userPortfolioCountKey(Long userId) {
+    private String userPortfolioCountKey(String userId) {
         return "user:" + userId + ":portfolio-count";
     }
 
-    private String userUpdatedAtKey(Long userId) {
+    private String userUpdatedAtKey(String userId) {
         return "user:" + userId + ":updated-at";
     }
 }

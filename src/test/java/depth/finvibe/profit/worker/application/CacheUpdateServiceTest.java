@@ -22,7 +22,7 @@ class CacheUpdateServiceTest {
     void updatesPortfolioCacheByStockBuy() {
         FakePortfolioStateStore portfolioStateStore = new FakePortfolioStateStore();
         FakeUserStateStore userStateStore = new FakeUserStateStore();
-        userStateStore.userIdsByPortfolioId.put(1L, 100L);
+        userStateStore.userIdsByPortfolioId.put(1L, "100");
         FakeValuationRepository valuationRepository = new FakeValuationRepository();
         CacheUpdateService service = new CacheUpdateService(portfolioStateStore, userStateStore, valuationRepository);
 
@@ -40,9 +40,9 @@ class CacheUpdateServiceTest {
         assertThat(portfolioStateStore.purchasedValues.get(1L)).isEqualTo(1_000L);
         assertThat(portfolioStateStore.currentValues.get(1L)).isEqualTo(1_000L);
         assertThat(portfolioStateStore.assetCounts.get(1L)).isEqualTo(1L);
-        assertThat(userStateStore.purchasedValues.get(100L)).isEqualTo(1_000L);
+        assertThat(userStateStore.purchasedValues.get("100")).isEqualTo(1_000L);
         assertThat(valuationRepository.dirtyPortfolioIds).contains(1L);
-        assertThat(valuationRepository.dirtyUserIds).contains(100L);
+        assertThat(valuationRepository.dirtyUserIds).contains("100");
 
         service.updatePortfolioCache(CacheUpdateDto.PortfolioCacheUpdateRequest.builder()
                 .portfolioId(1L)
@@ -57,7 +57,7 @@ class CacheUpdateServiceTest {
         assertThat(portfolioStateStore.purchasedValues.get(1L)).isEqualTo(1_500L);
         assertThat(portfolioStateStore.currentValues.get(1L)).isEqualTo(1_500L);
         assertThat(portfolioStateStore.assetCounts.get(1L)).isEqualTo(1L);
-        assertThat(userStateStore.purchasedValues.get(100L)).isEqualTo(1_500L);
+        assertThat(userStateStore.purchasedValues.get("100")).isEqualTo(1_500L);
     }
 
     @Test
@@ -70,8 +70,8 @@ class CacheUpdateServiceTest {
         portfolioStateStore.currentValues.put(1L, 1_500L);
         portfolioStateStore.assetCounts.put(1L, 1L);
         FakeUserStateStore userStateStore = new FakeUserStateStore();
-        userStateStore.userIdsByPortfolioId.put(1L, 100L);
-        userStateStore.purchasedValues.put(100L, 1_500L);
+        userStateStore.userIdsByPortfolioId.put(1L, "100");
+        userStateStore.purchasedValues.put("100", 1_500L);
         FakeValuationRepository valuationRepository = new FakeValuationRepository();
         CacheUpdateService service = new CacheUpdateService(portfolioStateStore, userStateStore, valuationRepository);
 
@@ -89,9 +89,9 @@ class CacheUpdateServiceTest {
         assertThat(portfolioStateStore.purchasedValues.get(1L)).isEqualTo(1_000L);
         assertThat(portfolioStateStore.currentValues.get(1L)).isEqualTo(1_000L);
         assertThat(portfolioStateStore.assetCounts.get(1L)).isEqualTo(1L);
-        assertThat(userStateStore.purchasedValues.get(100L)).isEqualTo(1_000L);
+        assertThat(userStateStore.purchasedValues.get("100")).isEqualTo(1_000L);
         assertThat(valuationRepository.dirtyPortfolioIds).contains(1L);
-        assertThat(valuationRepository.dirtyUserIds).contains(100L);
+        assertThat(valuationRepository.dirtyUserIds).contains("100");
     }
 
     @Test
@@ -104,8 +104,8 @@ class CacheUpdateServiceTest {
         portfolioStateStore.currentValues.put(1L, 500L);
         portfolioStateStore.assetCounts.put(1L, 1L);
         FakeUserStateStore userStateStore = new FakeUserStateStore();
-        userStateStore.userIdsByPortfolioId.put(1L, 100L);
-        userStateStore.purchasedValues.put(100L, 500L);
+        userStateStore.userIdsByPortfolioId.put(1L, "100");
+        userStateStore.purchasedValues.put("100", 500L);
         FakeValuationRepository valuationRepository = new FakeValuationRepository();
         CacheUpdateService service = new CacheUpdateService(portfolioStateStore, userStateStore, valuationRepository);
 
@@ -123,9 +123,9 @@ class CacheUpdateServiceTest {
         assertThat(portfolioStateStore.purchasedValues.get(1L)).isZero();
         assertThat(portfolioStateStore.currentValues.get(1L)).isZero();
         assertThat(portfolioStateStore.assetCounts.get(1L)).isZero();
-        assertThat(userStateStore.purchasedValues.get(100L)).isZero();
+        assertThat(userStateStore.purchasedValues.get("100")).isZero();
         assertThat(valuationRepository.dirtyPortfolioIds).contains(1L);
-        assertThat(valuationRepository.dirtyUserIds).contains(100L);
+        assertThat(valuationRepository.dirtyUserIds).contains("100");
     }
 
     @Test
@@ -141,25 +141,25 @@ class CacheUpdateServiceTest {
         CacheUpdateService service = new CacheUpdateService(portfolioStateStore, userStateStore, valuationRepository);
 
         service.updateUserCache(CacheUpdateDto.UserCacheUpdateRequest.builder()
-                .userId(100L)
+                .userId("100")
                 .portfolioId(1L)
                 .type(CacheUpdateDto.UserCacheUpdateRequest.ChangeType.CREATED)
                 .build());
 
-        assertThat(userStateStore.userIdsByPortfolioId.get(1L)).isEqualTo(100L);
-        assertThat(userStateStore.purchasedValues.get(100L)).isEqualTo(1_000L);
-        assertThat(userStateStore.portfolioCounts.get(100L)).isEqualTo(1L);
-        assertThat(valuationRepository.dirtyUserIds).contains(100L);
+        assertThat(userStateStore.userIdsByPortfolioId.get(1L)).isEqualTo("100");
+        assertThat(userStateStore.purchasedValues.get("100")).isEqualTo(1_000L);
+        assertThat(userStateStore.portfolioCounts.get("100")).isEqualTo(1L);
+        assertThat(valuationRepository.dirtyUserIds).contains("100");
 
         service.updateUserCache(CacheUpdateDto.UserCacheUpdateRequest.builder()
-                .userId(100L)
+                .userId("100")
                 .portfolioId(1L)
                 .type(CacheUpdateDto.UserCacheUpdateRequest.ChangeType.DELETED)
                 .build());
 
         assertThat(userStateStore.userIdsByPortfolioId).doesNotContainKey(1L);
-        assertThat(userStateStore.purchasedValues.get(100L)).isZero();
-        assertThat(userStateStore.portfolioCounts.get(100L)).isZero();
+        assertThat(userStateStore.purchasedValues.get("100")).isZero();
+        assertThat(userStateStore.portfolioCounts.get("100")).isZero();
         assertThat(portfolioStateStore.purchasedValues).doesNotContainKey(1L);
         assertThat(portfolioStateStore.currentValues).doesNotContainKey(1L);
         assertThat(portfolioStateStore.stockQuantities).doesNotContainKey("1:10");
@@ -293,32 +293,32 @@ class CacheUpdateServiceTest {
 
     private static class FakeUserStateStore implements UserStateStore {
 
-        private final Map<Long, Long> userIdsByPortfolioId = new HashMap<>();
-        private final Map<Long, Long> purchasedValues = new HashMap<>();
-        private final Map<Long, Long> portfolioCounts = new HashMap<>();
+        private final Map<Long, String> userIdsByPortfolioId = new HashMap<>();
+        private final Map<String, Long> purchasedValues = new HashMap<>();
+        private final Map<String, Long> portfolioCounts = new HashMap<>();
 
         @Override
-        public Long findUserIdByPortfolioId(Long portfolioId) {
+        public String findUserIdByPortfolioId(Long portfolioId) {
             return userIdsByPortfolioId.get(portfolioId);
         }
 
         @Override
-        public Long findPurchasedValue(Long userId) {
+        public Long findPurchasedValue(String userId) {
             return purchasedValues.getOrDefault(userId, 0L);
         }
 
         @Override
-        public Long calculateCurrentValue(Long userId) {
+        public Long calculateCurrentValue(String userId) {
             return 0L;
         }
 
         @Override
-        public Long findPortfolioCount(Long userId) {
+        public Long findPortfolioCount(String userId) {
             return portfolioCounts.getOrDefault(userId, 0L);
         }
 
         @Override
-        public void mapPortfolioToUser(Long portfolioId, Long userId) {
+        public void mapPortfolioToUser(Long portfolioId, String userId) {
             userIdsByPortfolioId.put(portfolioId, userId);
         }
 
@@ -328,22 +328,22 @@ class CacheUpdateServiceTest {
         }
 
         @Override
-        public void addPurchasedValue(Long userId, Long amount) {
+        public void addPurchasedValue(String userId, Long amount) {
             purchasedValues.merge(userId, amount, Long::sum);
         }
 
         @Override
-        public void subtractPurchasedValue(Long userId, Long amount) {
+        public void subtractPurchasedValue(String userId, Long amount) {
             purchasedValues.merge(userId, -amount, Long::sum);
         }
 
         @Override
-        public void increasePortfolioCount(Long userId) {
+        public void increasePortfolioCount(String userId) {
             portfolioCounts.merge(userId, 1L, Long::sum);
         }
 
         @Override
-        public void decreasePortfolioCount(Long userId) {
+        public void decreasePortfolioCount(String userId) {
             portfolioCounts.merge(userId, -1L, Long::sum);
         }
     }
@@ -351,7 +351,7 @@ class CacheUpdateServiceTest {
     private static class FakeValuationRepository implements ValuationRepository {
 
         private final Set<Long> dirtyPortfolioIds = new HashSet<>();
-        private final Set<Long> dirtyUserIds = new HashSet<>();
+        private final Set<String> dirtyUserIds = new HashSet<>();
 
         @Override
         public void savePortfolioValuation(PortfolioValuation valuation) {

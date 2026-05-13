@@ -22,11 +22,7 @@ spring:
       group-id: profit-worker
       auto-offset-reset: latest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
-      properties:
-        spring.json.trusted.packages: "*"
-        spring.json.use.type.headers: false
-        spring.json.value.default.type: depth.finvibe.profit.worker.consumer.dto.StockPriceUpdatedEvent
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
 
   data:
     redis:
@@ -38,3 +34,10 @@ management:
     web:
       exposure:
         include: health,prometheus
+
+app:
+  kafka:
+    topics:
+      stock-price-updated: ${KAFKA_TOPIC_STOCK_PRICE_UPDATED:finvibe.stock-price-updated.temp}
+      portfolio-trade: ${KAFKA_TOPIC_PORTFOLIO_TRADE:trade.trade-executed.v1}
+      portfolio-user: ${KAFKA_TOPIC_PORTFOLIO_USER:asset.portfolio-group-changed.v1}

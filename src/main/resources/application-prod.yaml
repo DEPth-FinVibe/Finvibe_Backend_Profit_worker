@@ -18,6 +18,8 @@ spring:
     consumer:
       group-id: profit-worker
       auto-offset-reset: latest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
 
   data:
     redis:
@@ -38,3 +40,10 @@ logging:
   level:
     root: INFO
     depth.finvibe.profit.worker: INFO
+
+app:
+  kafka:
+    topics:
+      stock-price-updated: ${KAFKA_TOPIC_STOCK_PRICE_UPDATED:finvibe.stock-price-updated.temp}
+      portfolio-trade: ${KAFKA_TOPIC_PORTFOLIO_TRADE:trade.trade-executed.v1}
+      portfolio-user: ${KAFKA_TOPIC_PORTFOLIO_USER:asset.portfolio-group-changed.v1}

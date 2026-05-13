@@ -47,7 +47,7 @@ class ProfitCalculateServiceTest {
 
         assertThat(valuationRepository.savedUserValuations).hasSize(1);
 
-        UserValuation userValuation = valuationRepository.userValuations.get(100L);
+        UserValuation userValuation = valuationRepository.userValuations.get("100");
         assertThat(userValuation.getPurchasedValue()).isEqualTo(2_000L);
         assertThat(userValuation.getCurrentValue()).isEqualTo(2_200L);
         assertThat(userValuation.getProfitRate()).isEqualTo(10.0);
@@ -62,7 +62,7 @@ class ProfitCalculateServiceTest {
         portfolioStateStore.currentValues.put(1L, 500L);
 
         FakeUserStateStore userStateStore = new FakeUserStateStore(valuationRepository);
-        userStateStore.purchasedValues.put(100L, 0L);
+        userStateStore.purchasedValues.put("100", 0L);
         ProfitCalculateService service = new ProfitCalculateService(
                 portfolioStateStore,
                 userStateStore,
@@ -75,7 +75,7 @@ class ProfitCalculateServiceTest {
                 .build());
 
         assertThat(valuationRepository.portfolioValuations.get(1L).getProfitRate()).isEqualTo(0.0);
-        assertThat(valuationRepository.userValuations.get(100L).getProfitRate()).isEqualTo(0.0);
+        assertThat(valuationRepository.userValuations.get("100").getProfitRate()).isEqualTo(0.0);
     }
 
     private static class FakePortfolioStateStore implements PortfolioStateStore {
@@ -169,27 +169,27 @@ class ProfitCalculateServiceTest {
     private static class FakeUserStateStore implements UserStateStore {
 
         private final FakeValuationRepository valuationRepository;
-        private final Map<Long, Long> userIdsByPortfolioId = Map.of(1L, 100L, 2L, 100L);
-        private final Map<Long, List<Long>> portfolioIdsByUserId = Map.of(100L, List.of(1L, 2L));
-        private final Map<Long, Long> purchasedValues = new HashMap<>(Map.of(100L, 2_000L));
-        private final Map<Long, Long> portfolioCounts = Map.of(100L, 2L);
+        private final Map<Long, String> userIdsByPortfolioId = Map.of(1L, "100", 2L, "100");
+        private final Map<String, List<Long>> portfolioIdsByUserId = Map.of("100", List.of(1L, 2L));
+        private final Map<String, Long> purchasedValues = new HashMap<>(Map.of("100", 2_000L));
+        private final Map<String, Long> portfolioCounts = Map.of("100", 2L);
 
         private FakeUserStateStore(FakeValuationRepository valuationRepository) {
             this.valuationRepository = valuationRepository;
         }
 
         @Override
-        public Long findUserIdByPortfolioId(Long portfolioId) {
+        public String findUserIdByPortfolioId(Long portfolioId) {
             return userIdsByPortfolioId.get(portfolioId);
         }
 
         @Override
-        public Long findPurchasedValue(Long userId) {
+        public Long findPurchasedValue(String userId) {
             return purchasedValues.get(userId);
         }
 
         @Override
-        public Long calculateCurrentValue(Long userId) {
+        public Long calculateCurrentValue(String userId) {
             return portfolioIdsByUserId.get(userId).stream()
                     .map(valuationRepository.portfolioValuations::get)
                     .mapToLong(PortfolioValuation::getCurrentValue)
@@ -197,12 +197,12 @@ class ProfitCalculateServiceTest {
         }
 
         @Override
-        public Long findPortfolioCount(Long userId) {
+        public Long findPortfolioCount(String userId) {
             return portfolioCounts.get(userId);
         }
 
         @Override
-        public void mapPortfolioToUser(Long portfolioId, Long userId) {
+        public void mapPortfolioToUser(Long portfolioId, String userId) {
             throw new UnsupportedOperationException();
         }
 
@@ -212,22 +212,22 @@ class ProfitCalculateServiceTest {
         }
 
         @Override
-        public void addPurchasedValue(Long userId, Long amount) {
+        public void addPurchasedValue(String userId, Long amount) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void subtractPurchasedValue(Long userId, Long amount) {
+        public void subtractPurchasedValue(String userId, Long amount) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void increasePortfolioCount(Long userId) {
+        public void increasePortfolioCount(String userId) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void decreasePortfolioCount(Long userId) {
+        public void decreasePortfolioCount(String userId) {
             throw new UnsupportedOperationException();
         }
     }
@@ -235,7 +235,7 @@ class ProfitCalculateServiceTest {
     private static class FakeValuationRepository implements ValuationRepository {
 
         private final Map<Long, PortfolioValuation> portfolioValuations = new HashMap<>();
-        private final Map<Long, UserValuation> userValuations = new HashMap<>();
+        private final Map<String, UserValuation> userValuations = new HashMap<>();
         private final List<UserValuation> savedUserValuations = new ArrayList<>();
 
         @Override

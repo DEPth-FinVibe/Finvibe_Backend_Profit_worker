@@ -16,7 +16,7 @@ import lombok.Setter;
 @Setter
 public class UserValuation {
     @Id
-    private Long userId;
+    private String userId; // 추후 정수 기반 UserID로 변경
 
     private Long purchasedValue; // 구매액
 

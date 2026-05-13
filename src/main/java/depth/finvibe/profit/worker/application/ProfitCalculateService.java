@@ -34,7 +34,7 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
         Long newPrice = Objects.requireNonNull(request.getNewPrice(), "newPrice must not be null");
 
         List<Long> portfolioIds = portfolioStateStore.findPortfolioIdsByStockId(stockId);
-        Set<Long> affectedUserIds = new HashSet<>();
+        Set<String> affectedUserIds = new HashSet<>();
 
         for (Long portfolioId : portfolioIds) {
             Long purchasedValue = portfolioStateStore.findPurchasedValue(portfolioId);
@@ -48,10 +48,13 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
                     .assetCount(portfolioStateStore.findAssetCount(portfolioId))
                     .build());
 
-            affectedUserIds.add(userStateStore.findUserIdByPortfolioId(portfolioId));
+            String userId = userStateStore.findUserIdByPortfolioId(portfolioId);
+            if (userId != null) {
+                affectedUserIds.add(userId);
+            }
         }
 
-        for (Long userId : affectedUserIds) {
+        for (String userId : affectedUserIds) {
             Long purchasedValue = userStateStore.findPurchasedValue(userId);
             Long currentValue = userStateStore.calculateCurrentValue(userId);
 

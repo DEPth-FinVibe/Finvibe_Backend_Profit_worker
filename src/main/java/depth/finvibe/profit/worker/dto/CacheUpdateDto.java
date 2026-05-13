@@ -33,7 +33,7 @@ public class CacheUpdateDto {
     @Data
     @Builder
     public static class UserCacheUpdateRequest {
-        private Long userId;
+        private String userId; // 추후 정수 기반 UserID로 변경
 
         private Long portfolioId;
 
