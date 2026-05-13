@@ -111,6 +111,7 @@ public class CacheUpdateService implements CacheUpdateUseCase {
         userStateStore.removePortfolioUserMapping(portfolioId);
         userStateStore.subtractPurchasedValue(userId, portfolioPurchasedValue);
         userStateStore.decreasePortfolioCount(userId);
+        valuationRepository.markPortfolioValuationDeleted(portfolioId);
         portfolioStateStore.deletePortfolioState(portfolioId);
         saveUserValuationSnapshot(userId);
     }

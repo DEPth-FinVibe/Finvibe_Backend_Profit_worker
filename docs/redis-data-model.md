@@ -86,7 +86,7 @@ profit worker는 Redis를 계산용 상태 저장소로 사용한다.
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
 | portfolioId | Long | 포트폴리오 ID |
-| userId | Long | 포트폴리오 소유 유저 ID |
+| userId | String | 포트폴리오 소유 유저 ID. 추후 정수 기반 UserID로 변경 예정 |
 
 관리 규칙:
 
@@ -100,7 +100,7 @@ profit worker는 Redis를 계산용 상태 저장소로 사용한다.
 
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
-| userId | Long | 유저 ID |
+| userId | String | 유저 ID. 추후 정수 기반 UserID로 변경 예정 |
 | portfolioIds | Set<Long> | 유저가 보유한 포트폴리오 ID 목록 |
 
 관리 규칙:
@@ -115,7 +115,7 @@ profit worker는 Redis를 계산용 상태 저장소로 사용한다.
 
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
-| userId | Long | 유저 ID |
+| userId | String | 유저 ID. 추후 정수 기반 UserID로 변경 예정 |
 | purchasedValue | Long | 유저 전체 총 구매액 |
 | currentValue | Long | 유저 전체 현재 평가액 |
 | portfolioCount | Long | 보유 포트폴리오 수 |
@@ -137,12 +137,15 @@ DB write-back이 필요한 대상을 표시하는 목록이다.
 | --- | --- | --- |
 | portfolioIds | Set<Long> | DB 반영이 필요한 포트폴리오 ID 목록 |
 | userIds | Set<Long> | DB 반영이 필요한 유저 ID 목록 |
+| deletedPortfolioIds | Set<Long> | DB에서 soft delete 처리해야 하는 포트폴리오 ID 목록 |
 
 관리 규칙:
 
 - worker가 포트폴리오 valuation snapshot을 저장하면 해당 포트폴리오를 dirty 대상으로 표시한다.
+- worker가 포트폴리오 삭제 이벤트를 처리하면 해당 포트폴리오를 삭제 dirty 대상으로 표시한다.
 - worker가 유저 valuation snapshot을 저장하면 해당 유저를 dirty 대상으로 표시한다.
 - batch service는 dirty 대상을 읽고 DB upsert 성공 후 제거한다.
+- batch service는 삭제 dirty 대상을 읽고 DB soft delete 성공 후 제거한다.
 - DB 반영 실패 시 dirty 대상은 유지하거나 재등록해야 한다.
 
 ## 외부 서비스 책임
@@ -156,18 +159,18 @@ Redis 상태는 batch sync와 이벤트 기반 갱신을 함께 사용해 관리
 | 매수/매도 반영 | CacheUpdateService | 체결 이벤트를 기반으로 포트폴리오 종목 보유 상태와 집계 상태를 실시간 갱신한다. |
 | 포트폴리오 생성/삭제 반영 | CacheUpdateService | 포트폴리오-유저 관계와 유저 집계 상태를 실시간 갱신한다. |
 | 주가 변경 valuation 계산 | profit worker | Redis 상태를 읽어 포트폴리오/유저 평가액과 수익률을 계산한다. |
-| DB write-back | batch service | dirty valuation 목록을 기준으로 Redis snapshot을 DB에 반영한다. |
+| DB write-back | batch service | dirty valuation 목록을 기준으로 Redis snapshot을 DB에 반영하고, 삭제 dirty 대상은 DB soft delete 처리한다. |
 
 event consumer는 Kafka 등 외부 이벤트를 받아 `CacheUpdateService`를 호출한다.
 Redis 상태를 직접 갱신하는 application 로직은 `CacheUpdateService`가 담당한다.
 
 | 이벤트 | 호출 use case | 갱신 대상 |
-| --- | --- |
+| --- | --- | --- |
 | 종목 매수 | `updatePortfolioCache` | 종목 보유 포트폴리오 인덱스, 포트폴리오 종목 보유 상태, 포트폴리오 집계 상태 |
 | 종목 매도 | `updatePortfolioCache` | 종목 보유 포트폴리오 인덱스, 포트폴리오 종목 보유 상태, 포트폴리오 집계 상태 |
 | 포트폴리오 생성 | `updateUserCache` | 포트폴리오-유저 관계, 유저 포트폴리오 목록, 유저 집계 상태 |
 | 포트폴리오 삭제 | `updateUserCache` | 포트폴리오-유저 관계, 유저 포트폴리오 목록, 유저 집계 상태 |
-| DB write-back batch | 별도 batch | dirty valuation 목록, 포트폴리오/유저 valuation snapshot |
+| DB write-back batch | 별도 batch | dirty valuation 목록, 포트폴리오/유저 valuation snapshot, 포트폴리오 soft delete marker |
 
 ## Batch Sync 책임
 
@@ -179,6 +182,7 @@ batch service는 Redis를 주기적으로 DB 또는 원천 데이터와 동기�
 - DB 또는 원천 이벤트 로그 기준으로 Redis 누락 데이터를 보정한다.
 - 오래된 관계 데이터, orphan 데이터, 전량 매도 후 남은 종목 상태를 정리한다.
 - dirty valuation 목록을 읽어 DB에 upsert 한다.
+- 포트폴리오 삭제 dirty 목록을 읽어 DB에 soft delete를 반영한다.
 - DB write-back 성공 후 dirty 대상을 제거한다.
 - DB write-back 실패 시 dirty 대상을 유지하거나 재등록한다.
 
@@ -223,7 +227,7 @@ Redis 상태 갱신 로직은 consumer에 두지 않는다.
 - `CacheUpdateService`가 포트폴리오-유저 관계를 제거한다.
 - `CacheUpdateService`가 유저 포트폴리오 목록에서 포트폴리오를 제거한다.
 - `CacheUpdateService`가 유저 구매액과 포트폴리오 수를 감소시킨다.
-- 삭제된 포트폴리오의 종목 보유 상태와 집계 상태 정리 여부를 결정해야 한다.
+- `CacheUpdateService`가 삭제된 포트폴리오의 종목 보유 상태와 집계 상태를 정리한다.
 
 ## 현재 누락 또는 결정 필요 사항
 
@@ -232,7 +236,7 @@ Redis 상태 갱신 로직은 consumer에 두지 않는다.
 - 종목 매수/매도 시 `CacheUpdateService`가 유저 총 구매액도 즉시 갱신한다.
 - 종목 매수/매도 시 `CacheUpdateService`가 포트폴리오/유저 valuation snapshot을 저장하고 dirty 대상으로 표시한다.
 - 포트폴리오 삭제 시 `CacheUpdateService`가 포트폴리오 종목별 보유 상태와 집계 상태를 즉시 정리한다.
-- Kafka inbound adapter는 `CacheUpdateEventConsumer`에 TODO skeleton만 둔다.
+- Kafka inbound adapter는 `CacheUpdateEventConsumer`와 `StockPriceEventConsumer`로 구현한다.
 - 유저 현재 평가액은 우선 포트폴리오 평가액 합산 방식으로 계산한다.
 - Redis 원자성은 현재 Java adapter 구조를 유지하고, 추후 `calculateCurrentValue`부터 Lua script 적용을 검토한다.
 - batch sync 최신성 기준은 우선 `updatedAt` 도입을 권장하고, 필요 시 event version 또는 snapshot version으로 전환한다.

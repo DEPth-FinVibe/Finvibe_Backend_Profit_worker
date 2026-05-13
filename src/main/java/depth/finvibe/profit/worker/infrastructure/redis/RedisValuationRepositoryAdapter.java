@@ -23,8 +23,16 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
         set(portfolioCurrentValueKey(portfolioId), valuation.getCurrentValue());
         set(portfolioProfitRateKey(portfolioId), valuation.getProfitRate());
         set(portfolioAssetCountKey(portfolioId), valuation.getAssetCount());
+        set(portfolioDeletedKey(portfolioId), false);
         set(portfolioUpdatedAtKey(portfolioId), Instant.now());
         redisTemplate.opsForSet().add(dirtyPortfolioValuationsKey(), String.valueOf(portfolioId));
+    }
+
+    @Override
+    public void markPortfolioValuationDeleted(Long portfolioId) {
+        set(portfolioDeletedKey(portfolioId), true);
+        set(portfolioDeletedAtKey(portfolioId), Instant.now());
+        redisTemplate.opsForSet().add(dirtyPortfolioValuationDeletionsKey(), String.valueOf(portfolioId));
     }
 
     @Override
@@ -45,6 +53,10 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
 
     private String dirtyPortfolioValuationsKey() {
         return "dirty:portfolio-valuations";
+    }
+
+    private String dirtyPortfolioValuationDeletionsKey() {
+        return "dirty:portfolio-valuation-deletions";
     }
 
     private String dirtyUserValuationsKey() {
@@ -69,6 +81,14 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
 
     private String portfolioUpdatedAtKey(Long portfolioId) {
         return "portfolio:" + portfolioId + ":updated-at";
+    }
+
+    private String portfolioDeletedKey(Long portfolioId) {
+        return "portfolio:" + portfolioId + ":deleted";
+    }
+
+    private String portfolioDeletedAtKey(Long portfolioId) {
+        return "portfolio:" + portfolioId + ":deleted-at";
     }
 
     private String userPurchasedValueKey(String userId) {

@@ -164,6 +164,7 @@ class CacheUpdateServiceTest {
         assertThat(portfolioStateStore.currentValues).doesNotContainKey(1L);
         assertThat(portfolioStateStore.stockQuantities).doesNotContainKey("1:10");
         assertThat(portfolioStateStore.stockCurrentValues).doesNotContainKey("1:10");
+        assertThat(valuationRepository.deletedPortfolioIds).contains(1L);
     }
 
     private static class FakePortfolioStateStore implements PortfolioStateStore {
@@ -351,11 +352,17 @@ class CacheUpdateServiceTest {
     private static class FakeValuationRepository implements ValuationRepository {
 
         private final Set<Long> dirtyPortfolioIds = new HashSet<>();
+        private final Set<Long> deletedPortfolioIds = new HashSet<>();
         private final Set<String> dirtyUserIds = new HashSet<>();
 
         @Override
         public void savePortfolioValuation(PortfolioValuation valuation) {
             dirtyPortfolioIds.add(valuation.getPortfolioId());
+        }
+
+        @Override
+        public void markPortfolioValuationDeleted(Long portfolioId) {
+            deletedPortfolioIds.add(portfolioId);
         }
 
         @Override

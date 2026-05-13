@@ -244,6 +244,11 @@ class ProfitCalculateServiceTest {
         }
 
         @Override
+        public void markPortfolioValuationDeleted(Long portfolioId) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
         public void saveUserValuation(UserValuation valuation) {
             userValuations.put(valuation.getUserId(), valuation);
             savedUserValuations.add(valuation);

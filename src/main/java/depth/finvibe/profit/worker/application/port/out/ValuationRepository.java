@@ -16,6 +16,13 @@ public interface ValuationRepository {
     void savePortfolioValuation(PortfolioValuation valuation);
 
     /**
+     * 포트폴리오 평가 snapshot을 soft delete 대상으로 표시한다.
+     *
+     * @param portfolioId 삭제된 포트폴리오 ID
+     */
+    void markPortfolioValuationDeleted(Long portfolioId);
+
+    /**
      * 유저 평가 snapshot을 저장한다.
      *
      * @param valuation 저장할 유저 평가 정보
