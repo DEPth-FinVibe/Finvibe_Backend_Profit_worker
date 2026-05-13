@@ -7,6 +7,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
+
 @Repository
 @RequiredArgsConstructor
 public class RedisValuationRepositoryAdapter implements ValuationRepository {
@@ -21,6 +23,7 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
         set(portfolioCurrentValueKey(portfolioId), valuation.getCurrentValue());
         set(portfolioProfitRateKey(portfolioId), valuation.getProfitRate());
         set(portfolioAssetCountKey(portfolioId), valuation.getAssetCount());
+        set(portfolioUpdatedAtKey(portfolioId), Instant.now());
         redisTemplate.opsForSet().add(dirtyPortfolioValuationsKey(), String.valueOf(portfolioId));
     }
 
@@ -32,6 +35,7 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
         set(userCurrentValueKey(userId), valuation.getCurrentValue());
         set(userProfitRateKey(userId), valuation.getProfitRate());
         set(userPortfolioCountKey(userId), valuation.getPortfolioCount());
+        set(userUpdatedAtKey(userId), Instant.now());
         redisTemplate.opsForSet().add(dirtyUserValuationsKey(), String.valueOf(userId));
     }
 
@@ -63,6 +67,10 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
         return "portfolio:" + portfolioId + ":asset-count";
     }
 
+    private String portfolioUpdatedAtKey(Long portfolioId) {
+        return "portfolio:" + portfolioId + ":updated-at";
+    }
+
     private String userPurchasedValueKey(Long userId) {
         return "user:" + userId + ":purchased-value";
     }
@@ -77,5 +85,9 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
 
     private String userPortfolioCountKey(Long userId) {
         return "user:" + userId + ":portfolio-count";
+    }
+
+    private String userUpdatedAtKey(Long userId) {
+        return "user:" + userId + ":updated-at";
     }
 }

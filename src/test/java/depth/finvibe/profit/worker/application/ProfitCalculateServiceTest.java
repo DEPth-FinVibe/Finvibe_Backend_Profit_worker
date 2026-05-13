@@ -96,6 +96,11 @@ class ProfitCalculateServiceTest {
         }
 
         @Override
+        public Long findCurrentValue(Long portfolioId) {
+            return currentValues.get(portfolioId);
+        }
+
+        @Override
         public Long calculateCurrentValue(Long portfolioId, Long changedStockId, Long newPrice) {
             return currentValues.get(portfolioId);
         }
@@ -152,6 +157,11 @@ class ProfitCalculateServiceTest {
 
         @Override
         public void decreaseAssetCount(Long portfolioId) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void deletePortfolioState(Long portfolioId) {
             throw new UnsupportedOperationException();
         }
     }

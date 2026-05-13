@@ -32,6 +32,11 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
     }
 
     @Override
+    public Long findCurrentValue(Long portfolioId) {
+        return getLong(portfolioCurrentValueKey(portfolioId));
+    }
+
+    @Override
     public Long calculateCurrentValue(Long portfolioId, Long changedStockId, Long newPrice) {
         Long quantity = getLong(portfolioStockQuantityKey(portfolioId, changedStockId));
         if (quantity == 0L) {
@@ -63,6 +68,7 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
 
         increment(quantityKey, quantity);
         redisTemplate.opsForSet().add(stockPortfoliosKey(stockId), String.valueOf(portfolioId));
+        redisTemplate.opsForSet().add(portfolioStocksKey(portfolioId), String.valueOf(stockId));
 
         return previousQuantity == 0L;
     }
@@ -78,6 +84,7 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
 
         redisTemplate.delete(quantityKey);
         redisTemplate.opsForSet().remove(stockPortfoliosKey(stockId), String.valueOf(portfolioId));
+        redisTemplate.opsForSet().remove(portfolioStocksKey(portfolioId), String.valueOf(stockId));
         return true;
     }
 
@@ -125,6 +132,25 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
         increment(portfolioAssetCountKey(portfolioId), -1L);
     }
 
+    @Override
+    public void deletePortfolioState(Long portfolioId) {
+        Set<String> stockIds = redisTemplate.opsForSet().members(portfolioStocksKey(portfolioId));
+        if (stockIds != null) {
+            for (String stockId : stockIds) {
+                redisTemplate.delete(portfolioStockQuantityKey(portfolioId, Long.valueOf(stockId)));
+                redisTemplate.delete(portfolioStockCurrentValueKey(portfolioId, Long.valueOf(stockId)));
+                redisTemplate.opsForSet().remove(stockPortfoliosKey(Long.valueOf(stockId)), String.valueOf(portfolioId));
+            }
+        }
+
+        redisTemplate.delete(portfolioStocksKey(portfolioId));
+        redisTemplate.delete(portfolioPurchasedValueKey(portfolioId));
+        redisTemplate.delete(portfolioCurrentValueKey(portfolioId));
+        redisTemplate.delete(portfolioAssetCountKey(portfolioId));
+        redisTemplate.delete(portfolioProfitRateKey(portfolioId));
+        redisTemplate.delete(portfolioUpdatedAtKey(portfolioId));
+    }
+
     private Long getLong(String key) {
         String value = redisTemplate.opsForValue().get(key);
         if (value == null) {
@@ -155,6 +181,18 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
 
     private String portfolioAssetCountKey(Long portfolioId) {
         return "portfolio:" + portfolioId + ":asset-count";
+    }
+
+    private String portfolioProfitRateKey(Long portfolioId) {
+        return "portfolio:" + portfolioId + ":profit-rate";
+    }
+
+    private String portfolioUpdatedAtKey(Long portfolioId) {
+        return "portfolio:" + portfolioId + ":updated-at";
+    }
+
+    private String portfolioStocksKey(Long portfolioId) {
+        return "portfolio:" + portfolioId + ":stocks";
     }
 
     private String portfolioStockQuantityKey(Long portfolioId, Long stockId) {

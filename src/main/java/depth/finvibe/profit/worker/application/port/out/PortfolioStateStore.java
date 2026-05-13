@@ -24,6 +24,14 @@ public interface PortfolioStateStore {
     Long findPurchasedValue(Long portfolioId);
 
     /**
+     * 포트폴리오의 현재 평가액을 조회한다.
+     *
+     * @param portfolioId 포트폴리오 ID
+     * @return 포트폴리오 현재 평가액
+     */
+    Long findCurrentValue(Long portfolioId);
+
+    /**
      * 변경된 종목 가격을 반영한 포트폴리오 평가액을 계산한다.
      *
      * @param portfolioId 포트폴리오 ID
@@ -124,4 +132,11 @@ public interface PortfolioStateStore {
      * @param portfolioId 포트폴리오 ID
      */
     void decreaseAssetCount(Long portfolioId);
+
+    /**
+     * 포트폴리오 삭제 시 Redis에 남은 포트폴리오 상태를 정리한다.
+     *
+     * @param portfolioId 포트폴리오 ID
+     */
+    void deletePortfolioState(Long portfolioId);
 }

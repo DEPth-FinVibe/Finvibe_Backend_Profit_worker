@@ -3,6 +3,9 @@ package depth.finvibe.profit.worker.application;
 import depth.finvibe.profit.worker.application.port.in.CacheUpdateUseCase;
 import depth.finvibe.profit.worker.application.port.out.PortfolioStateStore;
 import depth.finvibe.profit.worker.application.port.out.UserStateStore;
+import depth.finvibe.profit.worker.application.port.out.ValuationRepository;
+import depth.finvibe.profit.worker.domain.PortfolioValuation;
+import depth.finvibe.profit.worker.domain.UserValuation;
 import depth.finvibe.profit.worker.dto.CacheUpdateDto;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -27,6 +30,7 @@ public class CacheUpdateService implements CacheUpdateUseCase {
 
     private final PortfolioStateStore portfolioStateStore;
     private final UserStateStore userStateStore;
+    private final ValuationRepository valuationRepository;
 
     @Override
     public void updatePortfolioCache(CacheUpdateDto.PortfolioCacheUpdateRequest req) {
@@ -65,10 +69,17 @@ public class CacheUpdateService implements CacheUpdateUseCase {
         portfolioStateStore.addPurchasedValue(portfolioId, amount);
         portfolioStateStore.addCurrentValue(portfolioId, amount);
         portfolioStateStore.addStockCurrentValue(stockId, portfolioId, amount);
+        Long userId = userStateStore.findUserIdByPortfolioId(portfolioId);
+
+        if (userId != null) {
+            userStateStore.addPurchasedValue(userId, amount);
+        }
 
         if (added) {
             portfolioStateStore.increaseAssetCount(portfolioId);
         }
+
+        saveValuationSnapshot(portfolioId, userId);
     }
 
     private void updatePortfolioCacheByStockSell(Long portfolioId, Long stockId, Long quantity, Long amount) {
@@ -76,21 +87,73 @@ public class CacheUpdateService implements CacheUpdateUseCase {
         portfolioStateStore.subtractPurchasedValue(portfolioId, amount);
         portfolioStateStore.subtractCurrentValue(portfolioId, amount);
         portfolioStateStore.subtractStockCurrentValue(stockId, portfolioId, amount);
+        Long userId = userStateStore.findUserIdByPortfolioId(portfolioId);
+
+        if (userId != null) {
+            userStateStore.subtractPurchasedValue(userId, amount);
+        }
 
         if (removed) {
             portfolioStateStore.decreaseAssetCount(portfolioId);
         }
+
+        saveValuationSnapshot(portfolioId, userId);
     }
 
     private void updateUserCacheByPortfolioCreated(Long userId, Long portfolioId, Long portfolioPurchasedValue) {
         userStateStore.mapPortfolioToUser(portfolioId, userId);
         userStateStore.addPurchasedValue(userId, portfolioPurchasedValue);
         userStateStore.increasePortfolioCount(userId);
+        saveUserValuationSnapshot(userId);
     }
 
     private void updateUserCacheByPortfolioDeleted(Long userId, Long portfolioId, Long portfolioPurchasedValue) {
         userStateStore.removePortfolioUserMapping(portfolioId);
         userStateStore.subtractPurchasedValue(userId, portfolioPurchasedValue);
         userStateStore.decreasePortfolioCount(userId);
+        portfolioStateStore.deletePortfolioState(portfolioId);
+        saveUserValuationSnapshot(userId);
+    }
+
+    private void saveValuationSnapshot(Long portfolioId, Long userId) {
+        savePortfolioValuationSnapshot(portfolioId);
+
+        if (userId != null) {
+            saveUserValuationSnapshot(userId);
+        }
+    }
+
+    private void savePortfolioValuationSnapshot(Long portfolioId) {
+        Long purchasedValue = portfolioStateStore.findPurchasedValue(portfolioId);
+        Long currentValue = portfolioStateStore.findCurrentValue(portfolioId);
+
+        valuationRepository.savePortfolioValuation(PortfolioValuation.builder()
+                .portfolioId(portfolioId)
+                .purchasedValue(purchasedValue)
+                .currentValue(currentValue)
+                .profitRate(calculateProfitRate(purchasedValue, currentValue))
+                .assetCount(portfolioStateStore.findAssetCount(portfolioId))
+                .build());
+    }
+
+    private void saveUserValuationSnapshot(Long userId) {
+        Long purchasedValue = userStateStore.findPurchasedValue(userId);
+        Long currentValue = userStateStore.calculateCurrentValue(userId);
+
+        valuationRepository.saveUserValuation(UserValuation.builder()
+                .userId(userId)
+                .purchasedValue(purchasedValue)
+                .currentValue(currentValue)
+                .profitRate(calculateProfitRate(purchasedValue, currentValue))
+                .portfolioCount(userStateStore.findPortfolioCount(userId))
+                .build());
+    }
+
+    private Double calculateProfitRate(Long purchasedValue, Long currentValue) {
+        if (purchasedValue == 0L) {
+            return 0.0;
+        }
+
+        return ((double) (currentValue - purchasedValue) / purchasedValue) * 100;
     }
 }
