@@ -44,6 +44,6 @@ logging:
 app:
   kafka:
     topics:
-      stock-price-updated: ${KAFKA_TOPIC_STOCK_PRICE_UPDATED:finvibe.stock-price-updated.temp}
+      stock-price-updated: ${KAFKA_TOPIC_STOCK_PRICE_UPDATED:market.stock-price-updated.v1}
       portfolio-trade: ${KAFKA_TOPIC_PORTFOLIO_TRADE:trade.trade-executed.v1}
       portfolio-user: ${KAFKA_TOPIC_PORTFOLIO_USER:asset.portfolio-group-changed.v1}
