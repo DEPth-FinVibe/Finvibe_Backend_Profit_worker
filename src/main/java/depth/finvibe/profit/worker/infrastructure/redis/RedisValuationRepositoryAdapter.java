@@ -8,6 +8,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
+import java.util.Map;
 
 @Repository
 @RequiredArgsConstructor
@@ -18,37 +19,42 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
     @Override
     public void savePortfolioValuation(PortfolioValuation valuation) {
         Long portfolioId = valuation.getPortfolioId();
+        Instant updatedAt = Instant.now();
 
-        set(portfolioPurchasedValueKey(portfolioId), valuation.getPurchasedValue());
-        set(portfolioCurrentValueKey(portfolioId), valuation.getCurrentValue());
-        set(portfolioProfitRateKey(portfolioId), valuation.getProfitRate());
-        set(portfolioAssetCountKey(portfolioId), valuation.getAssetCount());
-        set(portfolioDeletedKey(portfolioId), false);
-        set(portfolioUpdatedAtKey(portfolioId), Instant.now());
+        redisTemplate.opsForHash().putAll(portfolioHashKey(portfolioId), Map.of(
+                "pv", String.valueOf(valuation.getPurchasedValue()),
+                "cv", String.valueOf(valuation.getCurrentValue()),
+                "pr", String.valueOf(valuation.getProfitRate()),
+                "ac", String.valueOf(valuation.getAssetCount()),
+                "del", "0",
+                "ua", updatedAt.toString()
+        ));
         redisTemplate.opsForSet().add(dirtyPortfolioValuationsKey(), String.valueOf(portfolioId));
     }
 
     @Override
     public void markPortfolioValuationDeleted(Long portfolioId) {
-        set(portfolioDeletedKey(portfolioId), true);
-        set(portfolioDeletedAtKey(portfolioId), Instant.now());
+        Instant deletedAt = Instant.now();
+        redisTemplate.opsForHash().putAll(portfolioHashKey(portfolioId), Map.of(
+                "del", "1",
+                "da", deletedAt.toString()
+        ));
         redisTemplate.opsForSet().add(dirtyPortfolioValuationDeletionsKey(), String.valueOf(portfolioId));
     }
 
     @Override
     public void saveUserValuation(UserValuation valuation) {
         String userId = valuation.getUserId();
+        Instant updatedAt = Instant.now();
 
-        set(userPurchasedValueKey(userId), valuation.getPurchasedValue());
-        set(userCurrentValueKey(userId), valuation.getCurrentValue());
-        set(userProfitRateKey(userId), valuation.getProfitRate());
-        set(userPortfolioCountKey(userId), valuation.getPortfolioCount());
-        set(userUpdatedAtKey(userId), Instant.now());
+        redisTemplate.opsForHash().putAll(userHashKey(userId), Map.of(
+                "pv", String.valueOf(valuation.getPurchasedValue()),
+                "cv", String.valueOf(valuation.getCurrentValue()),
+                "pr", String.valueOf(valuation.getProfitRate()),
+                "pc", String.valueOf(valuation.getPortfolioCount()),
+                "ua", updatedAt.toString()
+        ));
         redisTemplate.opsForSet().add(dirtyUserValuationsKey(), String.valueOf(userId));
-    }
-
-    private void set(String key, Object value) {
-        redisTemplate.opsForValue().set(key, String.valueOf(value));
     }
 
     private String dirtyPortfolioValuationsKey() {
@@ -63,51 +69,11 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
         return "dirty:user-valuations";
     }
 
-    private String portfolioPurchasedValueKey(Long portfolioId) {
-        return "portfolio:" + portfolioId + ":purchased-value";
+    private String portfolioHashKey(Long portfolioId) {
+        return "pf:" + portfolioId;
     }
 
-    private String portfolioCurrentValueKey(Long portfolioId) {
-        return "portfolio:" + portfolioId + ":current-value";
-    }
-
-    private String portfolioProfitRateKey(Long portfolioId) {
-        return "portfolio:" + portfolioId + ":profit-rate";
-    }
-
-    private String portfolioAssetCountKey(Long portfolioId) {
-        return "portfolio:" + portfolioId + ":asset-count";
-    }
-
-    private String portfolioUpdatedAtKey(Long portfolioId) {
-        return "portfolio:" + portfolioId + ":updated-at";
-    }
-
-    private String portfolioDeletedKey(Long portfolioId) {
-        return "portfolio:" + portfolioId + ":deleted";
-    }
-
-    private String portfolioDeletedAtKey(Long portfolioId) {
-        return "portfolio:" + portfolioId + ":deleted-at";
-    }
-
-    private String userPurchasedValueKey(String userId) {
-        return "user:" + userId + ":purchased-value";
-    }
-
-    private String userCurrentValueKey(String userId) {
-        return "user:" + userId + ":current-value";
-    }
-
-    private String userProfitRateKey(String userId) {
-        return "user:" + userId + ":profit-rate";
-    }
-
-    private String userPortfolioCountKey(String userId) {
-        return "user:" + userId + ":portfolio-count";
-    }
-
-    private String userUpdatedAtKey(String userId) {
-        return "user:" + userId + ":updated-at";
+    private String userHashKey(String userId) {
+        return "usr:" + userId;
     }
 }

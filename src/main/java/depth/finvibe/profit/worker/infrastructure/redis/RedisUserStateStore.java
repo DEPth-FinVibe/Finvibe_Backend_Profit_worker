@@ -15,12 +15,13 @@ public class RedisUserStateStore implements UserStateStore {
 
     @Override
     public String findUserIdByPortfolioId(Long portfolioId) {
-        return redisTemplate.opsForValue().get(portfolioUserKey(portfolioId));
+        Object value = redisTemplate.opsForHash().get(portfolioHashKey(portfolioId), "u");
+        return value == null ? null : value.toString();
     }
 
     @Override
     public Long findPurchasedValue(String userId) {
-        return getLong(userPurchasedValueKey(userId));
+        return getHashLong(userHashKey(userId), "pv");
     }
 
     @Override
@@ -32,25 +33,25 @@ public class RedisUserStateStore implements UserStateStore {
 
         return portfolioIds.stream()
                 .map(Long::valueOf)
-                .mapToLong(portfolioId -> getLong(portfolioCurrentValueKey(portfolioId)))
+                .mapToLong(portfolioId -> getHashLong(portfolioHashKey(portfolioId), "cv"))
                 .sum();
     }
 
     @Override
     public Long findPortfolioCount(String userId) {
-        return getLong(userPortfolioCountKey(userId));
+        return getHashLong(userHashKey(userId), "pc");
     }
 
     @Override
     public void mapPortfolioToUser(Long portfolioId, String userId) { // 추후 정수 기반 UserID로 변경
-        redisTemplate.opsForValue().set(portfolioUserKey(portfolioId), String.valueOf(userId));
+        redisTemplate.opsForHash().put(portfolioHashKey(portfolioId), "u", String.valueOf(userId));
         redisTemplate.opsForSet().add(userPortfoliosKey(userId), String.valueOf(portfolioId));
     }
 
     @Override
     public void removePortfolioUserMapping(Long portfolioId) {
         String userId = findUserIdByPortfolioId(portfolioId);
-        redisTemplate.delete(portfolioUserKey(portfolioId));
+        redisTemplate.opsForHash().delete(portfolioHashKey(portfolioId), "u");
 
         if (userId != null) {
             redisTemplate.opsForSet().remove(userPortfoliosKey(userId), String.valueOf(portfolioId));
@@ -59,54 +60,46 @@ public class RedisUserStateStore implements UserStateStore {
 
     @Override
     public void addPurchasedValue(String userId, Long amount) {
-        increment(userPurchasedValueKey(userId), amount);
+        incrementHash(userHashKey(userId), "pv", amount);
     }
 
     @Override
     public void subtractPurchasedValue(String userId, Long amount) {
-        increment(userPurchasedValueKey(userId), -amount);
+        incrementHash(userHashKey(userId), "pv", -amount);
     }
 
     @Override
     public void increasePortfolioCount(String userId) {
-        increment(userPortfolioCountKey(userId), 1L);
+        incrementHash(userHashKey(userId), "pc", 1L);
     }
 
     @Override
     public void decreasePortfolioCount(String userId) {
-        increment(userPortfolioCountKey(userId), -1L);
+        incrementHash(userHashKey(userId), "pc", -1L);
     }
 
-    private Long getLong(String key) {
-        String value = redisTemplate.opsForValue().get(key);
+    private Long getHashLong(String key, String field) {
+        Object value = redisTemplate.opsForHash().get(key, field);
         if (value == null) {
             return 0L;
         }
-        return Long.valueOf(value);
+        return Long.valueOf(value.toString());
     }
 
-    private Long increment(String key, Long delta) {
-        Long value = redisTemplate.opsForValue().increment(key, delta);
+    private Long incrementHash(String key, String field, Long delta) {
+        Long value = redisTemplate.opsForHash().increment(key, field, delta);
         if (value == null) {
             return 0L;
         }
         return value;
     }
 
-    private String portfolioUserKey(Long portfolioId) {
-        return "portfolio:" + portfolioId + ":user";
+    private String portfolioHashKey(Long portfolioId) {
+        return "pf:" + portfolioId;
     }
 
-    private String portfolioCurrentValueKey(Long portfolioId) {
-        return "portfolio:" + portfolioId + ":current-value";
-    }
-
-    private String userPurchasedValueKey(String userId) {
-        return "user:" + userId + ":purchased-value";
-    }
-
-    private String userPortfolioCountKey(String userId) {
-        return "user:" + userId + ":portfolio-count";
+    private String userHashKey(String userId) {
+        return "usr:" + userId;
     }
 
     private String userPortfoliosKey(String userId) {

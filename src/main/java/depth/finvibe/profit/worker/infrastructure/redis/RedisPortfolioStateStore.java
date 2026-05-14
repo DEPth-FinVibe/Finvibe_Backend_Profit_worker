@@ -28,19 +28,19 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
 
     @Override
     public Long findPurchasedValue(Long portfolioId) {
-        return getLong(portfolioPurchasedValueKey(portfolioId));
+        return getHashLong(portfolioHashKey(portfolioId), "pv");
     }
 
     @Override
     public Long findCurrentValue(Long portfolioId) {
-        return getLong(portfolioCurrentValueKey(portfolioId));
+        return getHashLong(portfolioHashKey(portfolioId), "cv");
     }
 
     @Override
     public Long calculateCurrentValue(Long portfolioId, Long changedStockId, Long newPrice) {
         Long quantity = getLong(portfolioStockQuantityKey(portfolioId, changedStockId));
         if (quantity == 0L) {
-            return getLong(portfolioCurrentValueKey(portfolioId));
+            return getHashLong(portfolioHashKey(portfolioId), "cv");
         }
 
         String stockCurrentValueKey = portfolioStockCurrentValueKey(portfolioId, changedStockId);
@@ -49,16 +49,16 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
         Long delta = newStockCurrentValue - oldStockCurrentValue;
 
         if (delta != 0L) {
-            increment(portfolioCurrentValueKey(portfolioId), delta);
+            incrementHash(portfolioHashKey(portfolioId), "cv", delta);
         }
         redisTemplate.opsForValue().set(stockCurrentValueKey, String.valueOf(newStockCurrentValue));
 
-        return getLong(portfolioCurrentValueKey(portfolioId));
+        return getHashLong(portfolioHashKey(portfolioId), "cv");
     }
 
     @Override
     public Long findAssetCount(Long portfolioId) {
-        return getLong(portfolioAssetCountKey(portfolioId));
+        return getHashLong(portfolioHashKey(portfolioId), "ac");
     }
 
     @Override
@@ -90,22 +90,22 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
 
     @Override
     public void addPurchasedValue(Long portfolioId, Long amount) {
-        increment(portfolioPurchasedValueKey(portfolioId), amount);
+        incrementHash(portfolioHashKey(portfolioId), "pv", amount);
     }
 
     @Override
     public void subtractPurchasedValue(Long portfolioId, Long amount) {
-        increment(portfolioPurchasedValueKey(portfolioId), -amount);
+        incrementHash(portfolioHashKey(portfolioId), "pv", -amount);
     }
 
     @Override
     public void addCurrentValue(Long portfolioId, Long amount) {
-        increment(portfolioCurrentValueKey(portfolioId), amount);
+        incrementHash(portfolioHashKey(portfolioId), "cv", amount);
     }
 
     @Override
     public void subtractCurrentValue(Long portfolioId, Long amount) {
-        increment(portfolioCurrentValueKey(portfolioId), -amount);
+        incrementHash(portfolioHashKey(portfolioId), "cv", -amount);
     }
 
     @Override
@@ -124,12 +124,12 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
 
     @Override
     public void increaseAssetCount(Long portfolioId) {
-        increment(portfolioAssetCountKey(portfolioId), 1L);
+        incrementHash(portfolioHashKey(portfolioId), "ac", 1L);
     }
 
     @Override
     public void decreaseAssetCount(Long portfolioId) {
-        increment(portfolioAssetCountKey(portfolioId), -1L);
+        incrementHash(portfolioHashKey(portfolioId), "ac", -1L);
     }
 
     @Override
@@ -144,11 +144,15 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
         }
 
         redisTemplate.delete(portfolioStocksKey(portfolioId));
-        redisTemplate.delete(portfolioPurchasedValueKey(portfolioId));
-        redisTemplate.delete(portfolioCurrentValueKey(portfolioId));
-        redisTemplate.delete(portfolioAssetCountKey(portfolioId));
-        redisTemplate.delete(portfolioProfitRateKey(portfolioId));
-        redisTemplate.delete(portfolioUpdatedAtKey(portfolioId));
+        redisTemplate.delete(portfolioHashKey(portfolioId));
+    }
+
+    private Long getHashLong(String key, String field) {
+        Object value = redisTemplate.opsForHash().get(key, field);
+        if (value == null) {
+            return 0L;
+        }
+        return Long.valueOf(value.toString());
     }
 
     private Long getLong(String key) {
@@ -167,28 +171,20 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
         return value;
     }
 
+    private Long incrementHash(String key, String field, Long delta) {
+        Long value = redisTemplate.opsForHash().increment(key, field, delta);
+        if (value == null) {
+            return 0L;
+        }
+        return value;
+    }
+
     private String stockPortfoliosKey(Long stockId) {
         return "stock:" + stockId + ":portfolios";
     }
 
-    private String portfolioPurchasedValueKey(Long portfolioId) {
-        return "portfolio:" + portfolioId + ":purchased-value";
-    }
-
-    private String portfolioCurrentValueKey(Long portfolioId) {
-        return "portfolio:" + portfolioId + ":current-value";
-    }
-
-    private String portfolioAssetCountKey(Long portfolioId) {
-        return "portfolio:" + portfolioId + ":asset-count";
-    }
-
-    private String portfolioProfitRateKey(Long portfolioId) {
-        return "portfolio:" + portfolioId + ":profit-rate";
-    }
-
-    private String portfolioUpdatedAtKey(Long portfolioId) {
-        return "portfolio:" + portfolioId + ":updated-at";
+    private String portfolioHashKey(Long portfolioId) {
+        return "pf:" + portfolioId;
     }
 
     private String portfolioStocksKey(Long portfolioId) {
