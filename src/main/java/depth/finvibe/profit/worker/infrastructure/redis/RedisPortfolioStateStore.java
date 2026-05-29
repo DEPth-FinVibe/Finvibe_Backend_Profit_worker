@@ -164,13 +164,20 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
         if (value == null) {
             return 0L;
         }
-        return Long.valueOf(value.toString());
+        return parseLong(value.toString());
     }
 
     private Long getLong(String key) {
         String value = redisTemplate.opsForValue().get(key);
         if (value == null) {
             return 0L;
+        }
+        return parseLong(value);
+    }
+
+    private Long parseLong(String value) {
+        if (value.contains(".")) {
+            return Math.round(Double.parseDouble(value));
         }
         return Long.valueOf(value);
     }
