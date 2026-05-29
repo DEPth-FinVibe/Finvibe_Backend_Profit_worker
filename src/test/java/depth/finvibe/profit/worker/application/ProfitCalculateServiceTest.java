@@ -6,6 +6,8 @@ import depth.finvibe.profit.worker.application.port.out.ValuationRepository;
 import depth.finvibe.profit.worker.domain.PortfolioValuation;
 import depth.finvibe.profit.worker.domain.UserValuation;
 import depth.finvibe.profit.worker.dto.ProfitCalculationDto;
+import depth.finvibe.profit.worker.support.TestMetricsFactory;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -19,13 +21,16 @@ class ProfitCalculateServiceTest {
 
     @Test
     void updatesPortfolioAndUserValuationByStockPriceChange() {
+        TestMetricsFactory.MetricsFixture fixture = TestMetricsFactory.create();
+        SimpleMeterRegistry registry = fixture.registry();
         FakeValuationRepository valuationRepository = new FakeValuationRepository();
         FakePortfolioStateStore portfolioStateStore = new FakePortfolioStateStore();
         FakeUserStateStore userStateStore = new FakeUserStateStore(valuationRepository);
         ProfitCalculateService service = new ProfitCalculateService(
                 portfolioStateStore,
                 userStateStore,
-                valuationRepository
+                valuationRepository,
+                fixture.metrics()
         );
 
         service.updateProfitByStockPriceChange(ProfitCalculationDto.ProfitCalculationRequest.builder()
@@ -52,10 +57,17 @@ class ProfitCalculateServiceTest {
         assertThat(userValuation.getCurrentValue()).isEqualTo(2_200L);
         assertThat(userValuation.getProfitRate()).isEqualTo(10.0);
         assertThat(userValuation.getPortfolioCount()).isEqualTo(2L);
+        assertThat(registry.find(ProfitWorkerMetrics.AFFECTED_PORTFOLIOS)
+                .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION)
+                .summary().totalAmount()).isEqualTo(2.0);
+        assertThat(registry.find(ProfitWorkerMetrics.AFFECTED_USERS)
+                .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION)
+                .summary().totalAmount()).isEqualTo(1.0);
     }
 
     @Test
     void usesZeroProfitRateWhenPurchasedValueIsZero() {
+        TestMetricsFactory.MetricsFixture fixture = TestMetricsFactory.create();
         FakeValuationRepository valuationRepository = new FakeValuationRepository();
         FakePortfolioStateStore portfolioStateStore = new FakePortfolioStateStore();
         portfolioStateStore.purchasedValues.put(1L, 0L);
@@ -66,7 +78,8 @@ class ProfitCalculateServiceTest {
         ProfitCalculateService service = new ProfitCalculateService(
                 portfolioStateStore,
                 userStateStore,
-                valuationRepository
+                valuationRepository,
+                fixture.metrics()
         );
 
         service.updateProfitByStockPriceChange(ProfitCalculationDto.ProfitCalculationRequest.builder()
@@ -78,9 +91,43 @@ class ProfitCalculateServiceTest {
         assertThat(valuationRepository.userValuations.get("100").getProfitRate()).isEqualTo(0.0);
     }
 
+    @Test
+    void recordsZeroWorkloadMetricsWhenNoPortfolioIsAffected() {
+        TestMetricsFactory.MetricsFixture fixture = TestMetricsFactory.create();
+        SimpleMeterRegistry registry = fixture.registry();
+        FakeValuationRepository valuationRepository = new FakeValuationRepository();
+        FakePortfolioStateStore portfolioStateStore = new FakePortfolioStateStore();
+        portfolioStateStore.portfolioIdsByStockId.put(999L, List.of());
+        FakeUserStateStore userStateStore = new FakeUserStateStore(valuationRepository);
+        ProfitCalculateService service = new ProfitCalculateService(
+                portfolioStateStore,
+                userStateStore,
+                valuationRepository,
+                fixture.metrics()
+        );
+
+        service.updateProfitByStockPriceChange(ProfitCalculationDto.ProfitCalculationRequest.builder()
+                .stockId(999L)
+                .newPrice(150L)
+                .build());
+
+        assertThat(registry.find(ProfitWorkerMetrics.AFFECTED_PORTFOLIOS)
+                .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION)
+                .summary().count()).isEqualTo(1);
+        assertThat(registry.find(ProfitWorkerMetrics.AFFECTED_PORTFOLIOS)
+                .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION)
+                .summary().totalAmount()).isEqualTo(0.0);
+        assertThat(registry.find(ProfitWorkerMetrics.AFFECTED_USERS)
+                .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION)
+                .summary().count()).isEqualTo(1);
+        assertThat(registry.find(ProfitWorkerMetrics.AFFECTED_USERS)
+                .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION)
+                .summary().totalAmount()).isEqualTo(0.0);
+    }
+
     private static class FakePortfolioStateStore implements PortfolioStateStore {
 
-        private final Map<Long, List<Long>> portfolioIdsByStockId = Map.of(10L, List.of(1L, 2L));
+        private final Map<Long, List<Long>> portfolioIdsByStockId = new HashMap<>(Map.of(10L, List.of(1L, 2L)));
         private final Map<Long, Long> purchasedValues = new HashMap<>(Map.of(1L, 1_000L, 2L, 1_000L));
         private final Map<Long, Long> currentValues = new HashMap<>(Map.of(1L, 1_500L, 2L, 700L));
         private final Map<Long, Long> assetCounts = Map.of(1L, 2L, 2L, 1L);
@@ -169,8 +216,8 @@ class ProfitCalculateServiceTest {
     private static class FakeUserStateStore implements UserStateStore {
 
         private final FakeValuationRepository valuationRepository;
-        private final Map<Long, String> userIdsByPortfolioId = Map.of(1L, "100", 2L, "100");
-        private final Map<String, List<Long>> portfolioIdsByUserId = Map.of("100", List.of(1L, 2L));
+        private final Map<Long, String> userIdsByPortfolioId = new HashMap<>(Map.of(1L, "100", 2L, "100"));
+        private final Map<String, List<Long>> portfolioIdsByUserId = new HashMap<>(Map.of("100", List.of(1L, 2L)));
         private final Map<String, Long> purchasedValues = new HashMap<>(Map.of("100", 2_000L));
         private final Map<String, Long> portfolioCounts = Map.of("100", 2L);
 

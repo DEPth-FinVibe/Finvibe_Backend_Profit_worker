@@ -7,6 +7,7 @@ import depth.finvibe.profit.worker.application.port.out.ValuationRepository;
 import depth.finvibe.profit.worker.domain.PortfolioValuation;
 import depth.finvibe.profit.worker.domain.UserValuation;
 import depth.finvibe.profit.worker.dto.ProfitCalculationDto;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -27,44 +28,55 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
     private final PortfolioStateStore portfolioStateStore;
     private final UserStateStore userStateStore;
     private final ValuationRepository valuationRepository;
+    private final ProfitWorkerMetrics metrics;
 
     @Override
     public void updateProfitByStockPriceChange(ProfitCalculationDto.ProfitCalculationRequest request) {
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
         Long stockId = Objects.requireNonNull(request.getStockId(), "stockId must not be null");
         Long newPrice = Objects.requireNonNull(request.getNewPrice(), "newPrice must not be null");
 
-        List<Long> portfolioIds = portfolioStateStore.findPortfolioIdsByStockId(stockId);
-        Set<String> affectedUserIds = new HashSet<>();
+        try {
+            List<Long> portfolioIds = portfolioStateStore.findPortfolioIdsByStockId(stockId);
+            Set<String> affectedUserIds = new HashSet<>();
 
-        for (Long portfolioId : portfolioIds) {
-            Long purchasedValue = portfolioStateStore.findPurchasedValue(portfolioId);
-            Long currentValue = portfolioStateStore.calculateCurrentValue(portfolioId, stockId, newPrice);
+            for (Long portfolioId : portfolioIds) {
+                Long purchasedValue = portfolioStateStore.findPurchasedValue(portfolioId);
+                Long currentValue = portfolioStateStore.calculateCurrentValue(portfolioId, stockId, newPrice);
 
-            valuationRepository.savePortfolioValuation(PortfolioValuation.builder()
-                    .portfolioId(portfolioId)
-                    .purchasedValue(purchasedValue)
-                    .currentValue(currentValue)
-                    .profitRate(calculateProfitRate(purchasedValue, currentValue))
-                    .assetCount(portfolioStateStore.findAssetCount(portfolioId))
-                    .build());
+                valuationRepository.savePortfolioValuation(PortfolioValuation.builder()
+                        .portfolioId(portfolioId)
+                        .purchasedValue(purchasedValue)
+                        .currentValue(currentValue)
+                        .profitRate(calculateProfitRate(purchasedValue, currentValue))
+                        .assetCount(portfolioStateStore.findAssetCount(portfolioId))
+                        .build());
 
-            String userId = userStateStore.findUserIdByPortfolioId(portfolioId);
-            if (userId != null) {
-                affectedUserIds.add(userId);
+                String userId = userStateStore.findUserIdByPortfolioId(portfolioId);
+                if (userId != null) {
+                    affectedUserIds.add(userId);
+                }
             }
-        }
 
-        for (String userId : affectedUserIds) {
-            Long purchasedValue = userStateStore.findPurchasedValue(userId);
-            Long currentValue = userStateStore.calculateCurrentValue(userId);
+            for (String userId : affectedUserIds) {
+                Long purchasedValue = userStateStore.findPurchasedValue(userId);
+                Long currentValue = userStateStore.calculateCurrentValue(userId);
 
-            valuationRepository.saveUserValuation(UserValuation.builder()
-                    .userId(userId)
-                    .purchasedValue(purchasedValue)
-                    .currentValue(currentValue)
-                    .profitRate(calculateProfitRate(purchasedValue, currentValue))
-                    .portfolioCount(userStateStore.findPortfolioCount(userId))
-                    .build());
+                valuationRepository.saveUserValuation(UserValuation.builder()
+                        .userId(userId)
+                        .purchasedValue(purchasedValue)
+                        .currentValue(currentValue)
+                        .profitRate(calculateProfitRate(purchasedValue, currentValue))
+                        .portfolioCount(userStateStore.findPortfolioCount(userId))
+                        .build());
+            }
+
+            metrics.recordAffectedPortfolios(ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION, portfolioIds.size());
+            metrics.recordAffectedUsers(ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION, affectedUserIds.size());
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
+        } finally {
+            metrics.recordServiceDuration(ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION, result, sample);
         }
     }
 

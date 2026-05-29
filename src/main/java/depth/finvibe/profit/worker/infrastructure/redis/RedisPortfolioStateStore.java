@@ -1,6 +1,8 @@
 package depth.finvibe.profit.worker.infrastructure.redis;
 
+import depth.finvibe.profit.worker.application.ProfitWorkerMetrics;
 import depth.finvibe.profit.worker.application.port.out.PortfolioStateStore;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
@@ -13,6 +15,7 @@ import java.util.Set;
 public class RedisPortfolioStateStore implements PortfolioStateStore {
 
     private final StringRedisTemplate redisTemplate;
+    private final ProfitWorkerMetrics metrics;
 
     @Override
     public List<Long> findPortfolioIdsByStockId(Long stockId) {
@@ -38,22 +41,31 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
 
     @Override
     public Long calculateCurrentValue(Long portfolioId, Long changedStockId, Long newPrice) {
-        Long quantity = getLong(portfolioStockQuantityKey(portfolioId, changedStockId));
-        if (quantity == 0L) {
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
+
+        try {
+            Long quantity = getLong(portfolioStockQuantityKey(portfolioId, changedStockId));
+            if (quantity == 0L) {
+                result = ProfitWorkerMetrics.RESULT_SUCCESS;
+                return getHashLong(portfolioHashKey(portfolioId), "cv");
+            }
+
+            String stockCurrentValueKey = portfolioStockCurrentValueKey(portfolioId, changedStockId);
+            Long oldStockCurrentValue = getLong(stockCurrentValueKey);
+            Long newStockCurrentValue = newPrice * quantity;
+            Long delta = newStockCurrentValue - oldStockCurrentValue;
+
+            if (delta != 0L) {
+                incrementHash(portfolioHashKey(portfolioId), "cv", delta);
+            }
+            redisTemplate.opsForValue().set(stockCurrentValueKey, String.valueOf(newStockCurrentValue));
+
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
             return getHashLong(portfolioHashKey(portfolioId), "cv");
+        } finally {
+            metrics.recordRedisDuration(ProfitWorkerMetrics.OPERATION_PORTFOLIO_CURRENT_VALUE, result, sample);
         }
-
-        String stockCurrentValueKey = portfolioStockCurrentValueKey(portfolioId, changedStockId);
-        Long oldStockCurrentValue = getLong(stockCurrentValueKey);
-        Long newStockCurrentValue = newPrice * quantity;
-        Long delta = newStockCurrentValue - oldStockCurrentValue;
-
-        if (delta != 0L) {
-            incrementHash(portfolioHashKey(portfolioId), "cv", delta);
-        }
-        redisTemplate.opsForValue().set(stockCurrentValueKey, String.valueOf(newStockCurrentValue));
-
-        return getHashLong(portfolioHashKey(portfolioId), "cv");
     }
 
     @Override

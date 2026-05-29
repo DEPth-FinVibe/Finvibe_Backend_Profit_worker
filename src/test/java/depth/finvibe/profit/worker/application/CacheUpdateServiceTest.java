@@ -6,6 +6,8 @@ import depth.finvibe.profit.worker.application.port.out.ValuationRepository;
 import depth.finvibe.profit.worker.domain.PortfolioValuation;
 import depth.finvibe.profit.worker.domain.UserValuation;
 import depth.finvibe.profit.worker.dto.CacheUpdateDto;
+import depth.finvibe.profit.worker.support.TestMetricsFactory;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
@@ -20,11 +22,13 @@ class CacheUpdateServiceTest {
 
     @Test
     void updatesPortfolioCacheByStockBuy() {
+        TestMetricsFactory.MetricsFixture fixture = TestMetricsFactory.create();
+        SimpleMeterRegistry registry = fixture.registry();
         FakePortfolioStateStore portfolioStateStore = new FakePortfolioStateStore();
         FakeUserStateStore userStateStore = new FakeUserStateStore();
         userStateStore.userIdsByPortfolioId.put(1L, "100");
         FakeValuationRepository valuationRepository = new FakeValuationRepository();
-        CacheUpdateService service = new CacheUpdateService(portfolioStateStore, userStateStore, valuationRepository);
+        CacheUpdateService service = new CacheUpdateService(portfolioStateStore, userStateStore, valuationRepository, fixture.metrics());
 
         service.updatePortfolioCache(CacheUpdateDto.PortfolioCacheUpdateRequest.builder()
                 .portfolioId(1L)
@@ -43,6 +47,12 @@ class CacheUpdateServiceTest {
         assertThat(userStateStore.purchasedValues.get("100")).isEqualTo(1_000L);
         assertThat(valuationRepository.dirtyPortfolioIds).contains(1L);
         assertThat(valuationRepository.dirtyUserIds).contains("100");
+        assertThat(registry.find(ProfitWorkerMetrics.AFFECTED_PORTFOLIOS)
+                .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_PORTFOLIO_CACHE_UPDATE)
+                .summary().totalAmount()).isEqualTo(1.0);
+        assertThat(registry.find(ProfitWorkerMetrics.AFFECTED_USERS)
+                .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_PORTFOLIO_CACHE_UPDATE)
+                .summary().totalAmount()).isEqualTo(1.0);
 
         service.updatePortfolioCache(CacheUpdateDto.PortfolioCacheUpdateRequest.builder()
                 .portfolioId(1L)
@@ -62,6 +72,7 @@ class CacheUpdateServiceTest {
 
     @Test
     void updatesPortfolioCacheByPartialStockSell() {
+        TestMetricsFactory.MetricsFixture fixture = TestMetricsFactory.create();
         FakePortfolioStateStore portfolioStateStore = new FakePortfolioStateStore();
         portfolioStateStore.stockIdsByPortfolioId.put(1L, new HashSet<>(Set.of(10L)));
         portfolioStateStore.stockQuantities.put("1:10", 10L);
@@ -73,7 +84,7 @@ class CacheUpdateServiceTest {
         userStateStore.userIdsByPortfolioId.put(1L, "100");
         userStateStore.purchasedValues.put("100", 1_500L);
         FakeValuationRepository valuationRepository = new FakeValuationRepository();
-        CacheUpdateService service = new CacheUpdateService(portfolioStateStore, userStateStore, valuationRepository);
+        CacheUpdateService service = new CacheUpdateService(portfolioStateStore, userStateStore, valuationRepository, fixture.metrics());
 
         service.updatePortfolioCache(CacheUpdateDto.PortfolioCacheUpdateRequest.builder()
                 .portfolioId(1L)
@@ -96,6 +107,7 @@ class CacheUpdateServiceTest {
 
     @Test
     void updatesPortfolioCacheByFullStockSell() {
+        TestMetricsFactory.MetricsFixture fixture = TestMetricsFactory.create();
         FakePortfolioStateStore portfolioStateStore = new FakePortfolioStateStore();
         portfolioStateStore.stockIdsByPortfolioId.put(1L, new HashSet<>(Set.of(10L)));
         portfolioStateStore.stockQuantities.put("1:10", 5L);
@@ -107,7 +119,7 @@ class CacheUpdateServiceTest {
         userStateStore.userIdsByPortfolioId.put(1L, "100");
         userStateStore.purchasedValues.put("100", 500L);
         FakeValuationRepository valuationRepository = new FakeValuationRepository();
-        CacheUpdateService service = new CacheUpdateService(portfolioStateStore, userStateStore, valuationRepository);
+        CacheUpdateService service = new CacheUpdateService(portfolioStateStore, userStateStore, valuationRepository, fixture.metrics());
 
         service.updatePortfolioCache(CacheUpdateDto.PortfolioCacheUpdateRequest.builder()
                 .portfolioId(1L)
@@ -130,6 +142,8 @@ class CacheUpdateServiceTest {
 
     @Test
     void updatesUserCacheByPortfolioCreatedAndDeleted() {
+        TestMetricsFactory.MetricsFixture fixture = TestMetricsFactory.create();
+        SimpleMeterRegistry registry = fixture.registry();
         FakePortfolioStateStore portfolioStateStore = new FakePortfolioStateStore();
         portfolioStateStore.purchasedValues.put(1L, 1_000L);
         portfolioStateStore.currentValues.put(1L, 1_200L);
@@ -138,7 +152,7 @@ class CacheUpdateServiceTest {
         portfolioStateStore.stockCurrentValues.put("1:10", 1_200L);
         FakeUserStateStore userStateStore = new FakeUserStateStore();
         FakeValuationRepository valuationRepository = new FakeValuationRepository();
-        CacheUpdateService service = new CacheUpdateService(portfolioStateStore, userStateStore, valuationRepository);
+        CacheUpdateService service = new CacheUpdateService(portfolioStateStore, userStateStore, valuationRepository, fixture.metrics());
 
         service.updateUserCache(CacheUpdateDto.UserCacheUpdateRequest.builder()
                 .userId("100")
@@ -165,6 +179,31 @@ class CacheUpdateServiceTest {
         assertThat(portfolioStateStore.stockQuantities).doesNotContainKey("1:10");
         assertThat(portfolioStateStore.stockCurrentValues).doesNotContainKey("1:10");
         assertThat(valuationRepository.deletedPortfolioIds).contains(1L);
+        assertThat(registry.find(ProfitWorkerMetrics.AFFECTED_PORTFOLIOS)
+                .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_USER_CACHE_UPDATE)
+                .summary().count()).isEqualTo(2);
+    }
+
+    @Test
+    void recordsZeroAffectedUsersWhenPortfolioHasNoMappedUser() {
+        TestMetricsFactory.MetricsFixture fixture = TestMetricsFactory.create();
+        SimpleMeterRegistry registry = fixture.registry();
+        FakePortfolioStateStore portfolioStateStore = new FakePortfolioStateStore();
+        FakeUserStateStore userStateStore = new FakeUserStateStore();
+        FakeValuationRepository valuationRepository = new FakeValuationRepository();
+        CacheUpdateService service = new CacheUpdateService(portfolioStateStore, userStateStore, valuationRepository, fixture.metrics());
+
+        service.updatePortfolioCache(CacheUpdateDto.PortfolioCacheUpdateRequest.builder()
+                .portfolioId(1L)
+                .stockId(10L)
+                .type(CacheUpdateDto.PortfolioCacheUpdateRequest.TradeType.STOCK_BUY)
+                .price(100L)
+                .quantity(1L)
+                .build());
+
+        assertThat(registry.find(ProfitWorkerMetrics.AFFECTED_USERS)
+                .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_PORTFOLIO_CACHE_UPDATE)
+                .summary().totalAmount()).isEqualTo(0.0);
     }
 
     private static class FakePortfolioStateStore implements PortfolioStateStore {

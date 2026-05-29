@@ -1,8 +1,10 @@
 package depth.finvibe.profit.worker.infrastructure.redis;
 
+import depth.finvibe.profit.worker.application.ProfitWorkerMetrics;
 import depth.finvibe.profit.worker.application.port.out.ValuationRepository;
 import depth.finvibe.profit.worker.domain.PortfolioValuation;
 import depth.finvibe.profit.worker.domain.UserValuation;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Repository;
@@ -15,21 +17,30 @@ import java.util.Map;
 public class RedisValuationRepositoryAdapter implements ValuationRepository {
 
     private final StringRedisTemplate redisTemplate;
+    private final ProfitWorkerMetrics metrics;
 
     @Override
     public void savePortfolioValuation(PortfolioValuation valuation) {
-        Long portfolioId = valuation.getPortfolioId();
-        Instant updatedAt = Instant.now();
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
 
-        redisTemplate.opsForHash().putAll(portfolioHashKey(portfolioId), Map.of(
-                "pv", String.valueOf(valuation.getPurchasedValue()),
-                "cv", String.valueOf(valuation.getCurrentValue()),
-                "pr", String.valueOf(valuation.getProfitRate()),
-                "ac", String.valueOf(valuation.getAssetCount()),
-                "del", "0",
-                "ua", updatedAt.toString()
-        ));
-        redisTemplate.opsForSet().add(dirtyPortfolioValuationsKey(), String.valueOf(portfolioId));
+        try {
+            Long portfolioId = valuation.getPortfolioId();
+            Instant updatedAt = Instant.now();
+
+            redisTemplate.opsForHash().putAll(portfolioHashKey(portfolioId), Map.of(
+                    "pv", String.valueOf(valuation.getPurchasedValue()),
+                    "cv", String.valueOf(valuation.getCurrentValue()),
+                    "pr", String.valueOf(valuation.getProfitRate()),
+                    "ac", String.valueOf(valuation.getAssetCount()),
+                    "del", "0",
+                    "ua", updatedAt.toString()
+            ));
+            redisTemplate.opsForSet().add(dirtyPortfolioValuationsKey(), String.valueOf(portfolioId));
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
+        } finally {
+            metrics.recordRedisDuration(ProfitWorkerMetrics.OPERATION_PORTFOLIO_VALUATION_SAVE, result, sample);
+        }
     }
 
     @Override
@@ -44,17 +55,25 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
 
     @Override
     public void saveUserValuation(UserValuation valuation) {
-        String userId = valuation.getUserId();
-        Instant updatedAt = Instant.now();
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
 
-        redisTemplate.opsForHash().putAll(userHashKey(userId), Map.of(
-                "pv", String.valueOf(valuation.getPurchasedValue()),
-                "cv", String.valueOf(valuation.getCurrentValue()),
-                "pr", String.valueOf(valuation.getProfitRate()),
-                "pc", String.valueOf(valuation.getPortfolioCount()),
-                "ua", updatedAt.toString()
-        ));
-        redisTemplate.opsForSet().add(dirtyUserValuationsKey(), String.valueOf(userId));
+        try {
+            String userId = valuation.getUserId();
+            Instant updatedAt = Instant.now();
+
+            redisTemplate.opsForHash().putAll(userHashKey(userId), Map.of(
+                    "pv", String.valueOf(valuation.getPurchasedValue()),
+                    "cv", String.valueOf(valuation.getCurrentValue()),
+                    "pr", String.valueOf(valuation.getProfitRate()),
+                    "pc", String.valueOf(valuation.getPortfolioCount()),
+                    "ua", updatedAt.toString()
+            ));
+            redisTemplate.opsForSet().add(dirtyUserValuationsKey(), String.valueOf(userId));
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
+        } finally {
+            metrics.recordRedisDuration(ProfitWorkerMetrics.OPERATION_USER_VALUATION_SAVE, result, sample);
+        }
     }
 
     private String dirtyPortfolioValuationsKey() {

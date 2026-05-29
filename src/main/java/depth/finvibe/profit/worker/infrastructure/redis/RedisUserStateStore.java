@@ -1,6 +1,8 @@
 package depth.finvibe.profit.worker.infrastructure.redis;
 
+import depth.finvibe.profit.worker.application.ProfitWorkerMetrics;
 import depth.finvibe.profit.worker.application.port.out.UserStateStore;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
@@ -12,6 +14,7 @@ import java.util.Set;
 public class RedisUserStateStore implements UserStateStore {
 
     private final StringRedisTemplate redisTemplate;
+    private final ProfitWorkerMetrics metrics;
 
     @Override
     public String findUserIdByPortfolioId(Long portfolioId) {
@@ -26,15 +29,25 @@ public class RedisUserStateStore implements UserStateStore {
 
     @Override
     public Long calculateCurrentValue(String userId) {
-        Set<String> portfolioIds = redisTemplate.opsForSet().members(userPortfoliosKey(userId));
-        if (portfolioIds == null) {
-            return 0L;
-        }
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
 
-        return portfolioIds.stream()
-                .map(Long::valueOf)
-                .mapToLong(portfolioId -> getHashLong(portfolioHashKey(portfolioId), "cv"))
-                .sum();
+        try {
+            Set<String> portfolioIds = redisTemplate.opsForSet().members(userPortfoliosKey(userId));
+            if (portfolioIds == null) {
+                result = ProfitWorkerMetrics.RESULT_SUCCESS;
+                return 0L;
+            }
+
+            long currentValue = portfolioIds.stream()
+                    .map(Long::valueOf)
+                    .mapToLong(portfolioId -> getHashLong(portfolioHashKey(portfolioId), "cv"))
+                    .sum();
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
+            return currentValue;
+        } finally {
+            metrics.recordRedisDuration(ProfitWorkerMetrics.OPERATION_USER_CURRENT_VALUE, result, sample);
+        }
     }
 
     @Override

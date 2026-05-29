@@ -7,6 +7,7 @@ import depth.finvibe.profit.worker.application.port.out.ValuationRepository;
 import depth.finvibe.profit.worker.domain.PortfolioValuation;
 import depth.finvibe.profit.worker.domain.UserValuation;
 import depth.finvibe.profit.worker.dto.CacheUpdateDto;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -31,9 +32,12 @@ public class CacheUpdateService implements CacheUpdateUseCase {
     private final PortfolioStateStore portfolioStateStore;
     private final UserStateStore userStateStore;
     private final ValuationRepository valuationRepository;
+    private final ProfitWorkerMetrics metrics;
 
     @Override
     public void updatePortfolioCache(CacheUpdateDto.PortfolioCacheUpdateRequest req) {
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
         Long portfolioId = Objects.requireNonNull(req.getPortfolioId(), "portfolioId must not be null");
         Long stockId = Objects.requireNonNull(req.getStockId(), "stockId must not be null");
         Long price = Objects.requireNonNull(req.getPrice(), "price must not be null");
@@ -43,14 +47,24 @@ public class CacheUpdateService implements CacheUpdateUseCase {
 
         Long amount = price * quantity;
 
-        switch (type) {
-            case STOCK_BUY -> updatePortfolioCacheByStockBuy(portfolioId, stockId, quantity, amount);
-            case STOCK_SELL -> updatePortfolioCacheByStockSell(portfolioId, stockId, quantity, amount);
+        try {
+            long affectedUsers = switch (type) {
+                case STOCK_BUY -> updatePortfolioCacheByStockBuy(portfolioId, stockId, quantity, amount);
+                case STOCK_SELL -> updatePortfolioCacheByStockSell(portfolioId, stockId, quantity, amount);
+            };
+
+            metrics.recordAffectedPortfolios(ProfitWorkerMetrics.OPERATION_PORTFOLIO_CACHE_UPDATE, 1);
+            metrics.recordAffectedUsers(ProfitWorkerMetrics.OPERATION_PORTFOLIO_CACHE_UPDATE, affectedUsers);
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
+        } finally {
+            metrics.recordServiceDuration(ProfitWorkerMetrics.OPERATION_PORTFOLIO_CACHE_UPDATE, result, sample);
         }
     }
 
     @Override
     public void updateUserCache(CacheUpdateDto.UserCacheUpdateRequest request) {
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
         String userId = Objects.requireNonNull(request.getUserId(), "userId must not be null");
         Long portfolioId = Objects.requireNonNull(request.getPortfolioId(), "portfolioId must not be null");
         CacheUpdateDto.UserCacheUpdateRequest.ChangeType type =
@@ -58,13 +72,21 @@ public class CacheUpdateService implements CacheUpdateUseCase {
 
         Long portfolioPurchasedValue = portfolioStateStore.findPurchasedValue(portfolioId);
 
-        switch (type) {
-            case CREATED -> updateUserCacheByPortfolioCreated(userId, portfolioId, portfolioPurchasedValue);
-            case DELETED -> updateUserCacheByPortfolioDeleted(userId, portfolioId, portfolioPurchasedValue);
+        try {
+            switch (type) {
+                case CREATED -> updateUserCacheByPortfolioCreated(userId, portfolioId, portfolioPurchasedValue);
+                case DELETED -> updateUserCacheByPortfolioDeleted(userId, portfolioId, portfolioPurchasedValue);
+            }
+
+            metrics.recordAffectedPortfolios(ProfitWorkerMetrics.OPERATION_USER_CACHE_UPDATE, 1);
+            metrics.recordAffectedUsers(ProfitWorkerMetrics.OPERATION_USER_CACHE_UPDATE, 1);
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
+        } finally {
+            metrics.recordServiceDuration(ProfitWorkerMetrics.OPERATION_USER_CACHE_UPDATE, result, sample);
         }
     }
 
-    private void updatePortfolioCacheByStockBuy(Long portfolioId, Long stockId, Long quantity, Long amount) {
+    private long updatePortfolioCacheByStockBuy(Long portfolioId, Long stockId, Long quantity, Long amount) {
         boolean added = portfolioStateStore.increaseStockQuantity(stockId, portfolioId, quantity);
         portfolioStateStore.addPurchasedValue(portfolioId, amount);
         portfolioStateStore.addCurrentValue(portfolioId, amount);
@@ -80,9 +102,10 @@ public class CacheUpdateService implements CacheUpdateUseCase {
         }
 
         saveValuationSnapshot(portfolioId, userId);
+        return userId == null ? 0L : 1L;
     }
 
-    private void updatePortfolioCacheByStockSell(Long portfolioId, Long stockId, Long quantity, Long amount) {
+    private long updatePortfolioCacheByStockSell(Long portfolioId, Long stockId, Long quantity, Long amount) {
         boolean removed = portfolioStateStore.decreaseStockQuantity(stockId, portfolioId, quantity);
         portfolioStateStore.subtractPurchasedValue(portfolioId, amount);
         portfolioStateStore.subtractCurrentValue(portfolioId, amount);
@@ -98,6 +121,7 @@ public class CacheUpdateService implements CacheUpdateUseCase {
         }
 
         saveValuationSnapshot(portfolioId, userId);
+        return userId == null ? 0L : 1L;
     }
 
     private void updateUserCacheByPortfolioCreated(String userId, Long portfolioId, Long portfolioPurchasedValue) {
