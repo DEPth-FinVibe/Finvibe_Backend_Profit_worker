@@ -11,6 +11,7 @@ import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
+import java.math.BigDecimal;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -38,7 +39,7 @@ class RedisMetricsTest {
 
         RedisPortfolioStateStore store = new RedisPortfolioStateStore(redisTemplate, fixture.metrics());
 
-        assertThat(store.calculateCurrentValue(1L, 10L, 200L)).isEqualTo(100L);
+        assertThat(store.calculateCurrentValue(1L, 10L, 200L)).isEqualByComparingTo(BigDecimal.valueOf(100L));
         assertThat(registry.find(ProfitWorkerMetrics.REDIS_OPERATION_DURATION)
                 .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_PORTFOLIO_CURRENT_VALUE,
                         ProfitWorkerMetrics.TAG_RESULT, ProfitWorkerMetrics.RESULT_SUCCESS)
@@ -57,7 +58,7 @@ class RedisMetricsTest {
 
         RedisUserStateStore store = new RedisUserStateStore(redisTemplate, fixture.metrics());
 
-        assertThat(store.calculateCurrentValue("user-1")).isZero();
+        assertThat(store.calculateCurrentValue("user-1")).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(registry.find(ProfitWorkerMetrics.REDIS_OPERATION_DURATION)
                 .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_USER_CURRENT_VALUE,
                         ProfitWorkerMetrics.TAG_RESULT, ProfitWorkerMetrics.RESULT_SUCCESS)

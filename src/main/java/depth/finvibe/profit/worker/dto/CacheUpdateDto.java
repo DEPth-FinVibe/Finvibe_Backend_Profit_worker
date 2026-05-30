@@ -5,6 +5,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
+
 public class CacheUpdateDto {
 
     @AllArgsConstructor
@@ -20,7 +22,7 @@ public class CacheUpdateDto {
 
         private Long price; // 원화 단위
 
-        private Long quantity;
+        private BigDecimal quantity;
 
         public enum TradeType {
             STOCK_BUY,

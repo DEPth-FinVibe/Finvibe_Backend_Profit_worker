@@ -11,6 +11,8 @@ import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -43,12 +45,12 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
 
             for (Long portfolioId : portfolioIds) {
                 Long purchasedValue = portfolioStateStore.findPurchasedValue(portfolioId);
-                Long currentValue = portfolioStateStore.calculateCurrentValue(portfolioId, stockId, newPrice);
+                BigDecimal currentValue = portfolioStateStore.calculateCurrentValue(portfolioId, stockId, newPrice);
 
                 valuationRepository.savePortfolioValuation(PortfolioValuation.builder()
                         .portfolioId(portfolioId)
                         .purchasedValue(purchasedValue)
-                        .currentValue(currentValue)
+                        .currentValue(roundToLong(currentValue))
                         .profitRate(calculateProfitRate(purchasedValue, currentValue))
                         .assetCount(portfolioStateStore.findAssetCount(portfolioId))
                         .build());
@@ -61,12 +63,12 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
 
             for (String userId : affectedUserIds) {
                 Long purchasedValue = userStateStore.findPurchasedValue(userId);
-                Long currentValue = userStateStore.calculateCurrentValue(userId);
+                BigDecimal currentValue = userStateStore.calculateCurrentValue(userId);
 
                 valuationRepository.saveUserValuation(UserValuation.builder()
                         .userId(userId)
                         .purchasedValue(purchasedValue)
-                        .currentValue(currentValue)
+                        .currentValue(roundToLong(currentValue))
                         .profitRate(calculateProfitRate(purchasedValue, currentValue))
                         .portfolioCount(userStateStore.findPortfolioCount(userId))
                         .build());
@@ -80,11 +82,19 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
         }
     }
 
-    private Double calculateProfitRate(Long purchasedValue, Long currentValue) {
+    private Double calculateProfitRate(Long purchasedValue, BigDecimal currentValue) {
         if (purchasedValue == 0L) {
             return 0.0;
         }
 
-        return ((double) (currentValue - purchasedValue) / purchasedValue) * 100;
+        return currentValue
+                .subtract(ValuationDecimalSupport.decimalOf(purchasedValue))
+                .divide(ValuationDecimalSupport.decimalOf(purchasedValue), 8, RoundingMode.HALF_UP)
+                .multiply(BigDecimal.valueOf(100))
+                .doubleValue();
+    }
+
+    private Long roundToLong(BigDecimal value) {
+        return ValuationDecimalSupport.toWholeNumber(value);
     }
 }

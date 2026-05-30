@@ -8,8 +8,9 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.math.BigDecimal;
+
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -46,7 +47,7 @@ class CacheUpdateEventConsumerTest {
         assertThat(request.getStockId()).isEqualTo(123L);
         assertThat(request.getType()).isEqualTo(CacheUpdateDto.PortfolioCacheUpdateRequest.TradeType.STOCK_BUY);
         assertThat(request.getPrice()).isEqualTo(50000L);
-        assertThat(request.getQuantity()).isEqualTo(10L);
+        assertThat(request.getQuantity()).isEqualByComparingTo(BigDecimal.TEN);
         assertThat(registry.find(ProfitWorkerMetrics.EVENTS_CONSUMED)
                 .tags(ProfitWorkerMetrics.TAG_EVENT_TYPE, ProfitWorkerMetrics.EVENT_TYPE_PORTFOLIO_TRADE,
                         ProfitWorkerMetrics.TAG_RESULT, ProfitWorkerMetrics.RESULT_SUCCESS)
@@ -54,13 +55,13 @@ class CacheUpdateEventConsumerTest {
     }
 
     @Test
-    void rejectsFractionalTradeAmount() {
+    void acceptsFractionalTradeAmount() {
         CacheUpdateUseCase cacheUpdateUseCase = mock(CacheUpdateUseCase.class);
         TestMetricsFactory.MetricsFixture fixture = TestMetricsFactory.create();
         SimpleMeterRegistry registry = fixture.registry();
         CacheUpdateEventConsumer consumer = new CacheUpdateEventConsumer(cacheUpdateUseCase, fixture.metrics());
 
-        assertThatThrownBy(() -> consumer.consumePortfolioTradeEvent("""
+        consumer.consumePortfolioTradeEvent("""
                 {
                   "type": "SELL",
                   "amount": 10.5,
@@ -68,13 +69,15 @@ class CacheUpdateEventConsumerTest {
                   "stockId": 123,
                   "portfolioId": 456
                 }
-                """))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("amount must be an integer");
-        verifyNoInteractions(cacheUpdateUseCase);
+                """);
+
+        ArgumentCaptor<CacheUpdateDto.PortfolioCacheUpdateRequest> captor =
+                ArgumentCaptor.forClass(CacheUpdateDto.PortfolioCacheUpdateRequest.class);
+        verify(cacheUpdateUseCase).updatePortfolioCache(captor.capture());
+        assertThat(captor.getValue().getQuantity()).isEqualByComparingTo("10.5");
         assertThat(registry.find(ProfitWorkerMetrics.EVENTS_CONSUMED)
                 .tags(ProfitWorkerMetrics.TAG_EVENT_TYPE, ProfitWorkerMetrics.EVENT_TYPE_PORTFOLIO_TRADE,
-                        ProfitWorkerMetrics.TAG_RESULT, ProfitWorkerMetrics.RESULT_FAILURE)
+                        ProfitWorkerMetrics.TAG_RESULT, ProfitWorkerMetrics.RESULT_SUCCESS)
                 .counter().count()).isEqualTo(1.0);
     }
 

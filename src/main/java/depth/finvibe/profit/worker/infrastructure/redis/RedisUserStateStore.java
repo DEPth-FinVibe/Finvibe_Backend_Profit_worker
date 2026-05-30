@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.util.Set;
 
 @Component
@@ -28,7 +29,7 @@ public class RedisUserStateStore implements UserStateStore {
     }
 
     @Override
-    public Long calculateCurrentValue(String userId) {
+    public BigDecimal calculateCurrentValue(String userId) {
         Timer.Sample sample = metrics.startSample();
         String result = ProfitWorkerMetrics.RESULT_FAILURE;
 
@@ -36,13 +37,13 @@ public class RedisUserStateStore implements UserStateStore {
             Set<String> portfolioIds = redisTemplate.opsForSet().members(userPortfoliosKey(userId));
             if (portfolioIds == null) {
                 result = ProfitWorkerMetrics.RESULT_SUCCESS;
-                return 0L;
+                return BigDecimal.ZERO;
             }
 
-            long currentValue = portfolioIds.stream()
+            BigDecimal currentValue = portfolioIds.stream()
                     .map(Long::valueOf)
-                    .mapToLong(portfolioId -> getHashLong(portfolioHashKey(portfolioId), "cv"))
-                    .sum();
+                    .map(this::getPortfolioCurrentValue)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
             result = ProfitWorkerMetrics.RESULT_SUCCESS;
             return currentValue;
         } finally {
@@ -105,6 +106,15 @@ public class RedisUserStateStore implements UserStateStore {
             return 0L;
         }
         return value;
+    }
+
+    private BigDecimal getPortfolioCurrentValue(Long portfolioId) {
+        String key = portfolioHashKey(portfolioId);
+        Object preciseValue = redisTemplate.opsForHash().get(key, "cvp");
+        if (preciseValue != null) {
+            return new BigDecimal(preciseValue.toString());
+        }
+        return BigDecimal.valueOf(getHashLong(key, "cv"));
     }
 
     private String portfolioHashKey(Long portfolioId) {

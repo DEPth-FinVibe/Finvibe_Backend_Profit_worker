@@ -1,5 +1,7 @@
 package depth.finvibe.profit.worker.application.port.out;
 
+import java.math.BigDecimal;
+
 /**
  * 유저 단위 수익률 계산과 캐시 갱신에 필요한 상태 저장소 포트.
  */
@@ -27,7 +29,7 @@ public interface UserStateStore {
      * @param userId 유저 ID
      * @return 유저 현재 평가액
      */
-    Long calculateCurrentValue(String userId);
+    BigDecimal calculateCurrentValue(String userId);
 
     /**
      * 유저의 보유 포트폴리오 수를 조회한다.

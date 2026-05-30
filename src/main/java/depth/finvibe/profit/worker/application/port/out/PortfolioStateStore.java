@@ -1,5 +1,6 @@
 package depth.finvibe.profit.worker.application.port.out;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 /**
@@ -29,7 +30,7 @@ public interface PortfolioStateStore {
      * @param portfolioId 포트폴리오 ID
      * @return 포트폴리오 현재 평가액
      */
-    Long findCurrentValue(Long portfolioId);
+    BigDecimal findCurrentValue(Long portfolioId);
 
     /**
      * 변경된 종목 가격을 반영한 포트폴리오 평가액을 계산한다.
@@ -39,7 +40,7 @@ public interface PortfolioStateStore {
      * @param newPrice 변경된 종목의 신규 가격
      * @return 변경 가격이 반영된 포트폴리오 평가액
      */
-    Long calculateCurrentValue(Long portfolioId, Long changedStockId, Long newPrice);
+    BigDecimal calculateCurrentValue(Long portfolioId, Long changedStockId, Long newPrice);
 
     /**
      * 포트폴리오의 보유 종목 수를 조회한다.
@@ -57,7 +58,7 @@ public interface PortfolioStateStore {
      * @param quantity 증가시킬 수량
      * @return 기존 수량이 0이었다가 새로 보유하게 되었으면 true
      */
-    boolean increaseStockQuantity(Long stockId, Long portfolioId, Long quantity);
+    boolean increaseStockQuantity(Long stockId, Long portfolioId, BigDecimal quantity);
 
     /**
      * 포트폴리오의 종목 보유 수량을 감소시킨다.
@@ -67,7 +68,7 @@ public interface PortfolioStateStore {
      * @param quantity 감소시킬 수량
      * @return 감소 후 수량이 0이 되어 보유 관계가 제거되었으면 true
      */
-    boolean decreaseStockQuantity(Long stockId, Long portfolioId, Long quantity);
+    boolean decreaseStockQuantity(Long stockId, Long portfolioId, BigDecimal quantity);
 
     /**
      * 포트폴리오 총 구매액에 금액을 더한다.
@@ -91,7 +92,7 @@ public interface PortfolioStateStore {
      * @param portfolioId 포트폴리오 ID
      * @param amount 더할 원화 금액
      */
-    void addCurrentValue(Long portfolioId, Long amount);
+    void addCurrentValue(Long portfolioId, BigDecimal amount);
 
     /**
      * 포트폴리오 평가액에서 금액을 뺀다.
@@ -99,7 +100,7 @@ public interface PortfolioStateStore {
      * @param portfolioId 포트폴리오 ID
      * @param amount 뺄 원화 금액
      */
-    void subtractCurrentValue(Long portfolioId, Long amount);
+    void subtractCurrentValue(Long portfolioId, BigDecimal amount);
 
     /**
      * 포트폴리오 내 특정 종목 평가액에 금액을 더한다.
@@ -108,7 +109,7 @@ public interface PortfolioStateStore {
      * @param portfolioId 포트폴리오 ID
      * @param amount 더할 원화 금액
      */
-    void addStockCurrentValue(Long stockId, Long portfolioId, Long amount);
+    void addStockCurrentValue(Long stockId, Long portfolioId, BigDecimal amount);
 
     /**
      * 포트폴리오 내 특정 종목 평가액에서 금액을 뺀다.
@@ -117,7 +118,7 @@ public interface PortfolioStateStore {
      * @param portfolioId 포트폴리오 ID
      * @param amount 뺄 원화 금액
      */
-    void subtractStockCurrentValue(Long stockId, Long portfolioId, Long amount);
+    void subtractStockCurrentValue(Long stockId, Long portfolioId, BigDecimal amount);
 
     /**
      * 포트폴리오 보유 종목 수를 1 증가시킨다.

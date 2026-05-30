@@ -10,6 +10,7 @@ import depth.finvibe.profit.worker.support.TestMetricsFactory;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -66,12 +67,38 @@ class ProfitCalculateServiceTest {
     }
 
     @Test
+    void roundsFractionalPortfolioAndUserCurrentValue() {
+        TestMetricsFactory.MetricsFixture fixture = TestMetricsFactory.create();
+        FakeValuationRepository valuationRepository = new FakeValuationRepository();
+        FakePortfolioStateStore portfolioStateStore = new FakePortfolioStateStore();
+        portfolioStateStore.currentValues.put(1L, new BigDecimal("500.5"));
+        portfolioStateStore.portfolioIdsByStockId.put(10L, List.of(1L));
+        FakeUserStateStore userStateStore = new FakeUserStateStore(valuationRepository);
+        userStateStore.userIdsByPortfolioId.put(1L, "100");
+        userStateStore.portfolioIdsByUserId.put("100", List.of(1L));
+        ProfitCalculateService service = new ProfitCalculateService(
+                portfolioStateStore,
+                userStateStore,
+                valuationRepository,
+                fixture.metrics()
+        );
+
+        service.updateProfitByStockPriceChange(ProfitCalculationDto.ProfitCalculationRequest.builder()
+                .stockId(10L)
+                .newPrice(150L)
+                .build());
+
+        assertThat(valuationRepository.portfolioValuations.get(1L).getCurrentValue()).isEqualTo(501L);
+        assertThat(valuationRepository.userValuations.get("100").getCurrentValue()).isEqualTo(501L);
+    }
+
+    @Test
     void usesZeroProfitRateWhenPurchasedValueIsZero() {
         TestMetricsFactory.MetricsFixture fixture = TestMetricsFactory.create();
         FakeValuationRepository valuationRepository = new FakeValuationRepository();
         FakePortfolioStateStore portfolioStateStore = new FakePortfolioStateStore();
         portfolioStateStore.purchasedValues.put(1L, 0L);
-        portfolioStateStore.currentValues.put(1L, 500L);
+        portfolioStateStore.currentValues.put(1L, new BigDecimal("500"));
 
         FakeUserStateStore userStateStore = new FakeUserStateStore(valuationRepository);
         userStateStore.purchasedValues.put("100", 0L);
@@ -129,7 +156,7 @@ class ProfitCalculateServiceTest {
 
         private final Map<Long, List<Long>> portfolioIdsByStockId = new HashMap<>(Map.of(10L, List.of(1L, 2L)));
         private final Map<Long, Long> purchasedValues = new HashMap<>(Map.of(1L, 1_000L, 2L, 1_000L));
-        private final Map<Long, Long> currentValues = new HashMap<>(Map.of(1L, 1_500L, 2L, 700L));
+        private final Map<Long, BigDecimal> currentValues = new HashMap<>(Map.of(1L, new BigDecimal("1500"), 2L, new BigDecimal("700")));
         private final Map<Long, Long> assetCounts = Map.of(1L, 2L, 2L, 1L);
 
         @Override
@@ -143,12 +170,12 @@ class ProfitCalculateServiceTest {
         }
 
         @Override
-        public Long findCurrentValue(Long portfolioId) {
+        public BigDecimal findCurrentValue(Long portfolioId) {
             return currentValues.get(portfolioId);
         }
 
         @Override
-        public Long calculateCurrentValue(Long portfolioId, Long changedStockId, Long newPrice) {
+        public BigDecimal calculateCurrentValue(Long portfolioId, Long changedStockId, Long newPrice) {
             return currentValues.get(portfolioId);
         }
 
@@ -158,12 +185,12 @@ class ProfitCalculateServiceTest {
         }
 
         @Override
-        public boolean increaseStockQuantity(Long stockId, Long portfolioId, Long quantity) {
+        public boolean increaseStockQuantity(Long stockId, Long portfolioId, BigDecimal quantity) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public boolean decreaseStockQuantity(Long stockId, Long portfolioId, Long quantity) {
+        public boolean decreaseStockQuantity(Long stockId, Long portfolioId, BigDecimal quantity) {
             throw new UnsupportedOperationException();
         }
 
@@ -178,22 +205,22 @@ class ProfitCalculateServiceTest {
         }
 
         @Override
-        public void addCurrentValue(Long portfolioId, Long amount) {
+        public void addCurrentValue(Long portfolioId, BigDecimal amount) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void subtractCurrentValue(Long portfolioId, Long amount) {
+        public void subtractCurrentValue(Long portfolioId, BigDecimal amount) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void addStockCurrentValue(Long stockId, Long portfolioId, Long amount) {
+        public void addStockCurrentValue(Long stockId, Long portfolioId, BigDecimal amount) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void subtractStockCurrentValue(Long stockId, Long portfolioId, Long amount) {
+        public void subtractStockCurrentValue(Long stockId, Long portfolioId, BigDecimal amount) {
             throw new UnsupportedOperationException();
         }
 
@@ -236,11 +263,12 @@ class ProfitCalculateServiceTest {
         }
 
         @Override
-        public Long calculateCurrentValue(String userId) {
+        public BigDecimal calculateCurrentValue(String userId) {
             return portfolioIdsByUserId.get(userId).stream()
                     .map(valuationRepository.portfolioValuations::get)
-                    .mapToLong(PortfolioValuation::getCurrentValue)
-                    .sum();
+                    .map(PortfolioValuation::getCurrentValue)
+                    .map(BigDecimal::valueOf)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
         }
 
         @Override

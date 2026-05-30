@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 
@@ -91,12 +92,12 @@ public class CacheUpdateEventConsumer {
         };
     }
 
-    private Long toQuantity(PortfolioTradeEvent event) {
-        try {
-            return event.getAmount().longValueExact();
-        } catch (ArithmeticException e) {
-            throw new IllegalArgumentException("Trade event amount must be an integer: " + event.getAmount(), e);
+    private BigDecimal toQuantity(PortfolioTradeEvent event) {
+        BigDecimal amount = event.getAmount();
+        if (amount == null || amount.signum() <= 0) {
+            throw new IllegalArgumentException("Trade event amount must be positive: " + amount);
         }
+        return amount.stripTrailingZeros();
     }
 
     private CacheUpdateDto.UserCacheUpdateRequest.ChangeType toChangeType(PortfolioUserEvent.EventType eventType) {

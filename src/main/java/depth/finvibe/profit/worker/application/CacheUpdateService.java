@@ -11,6 +11,8 @@ import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.Objects;
 
 /**
@@ -41,11 +43,11 @@ public class CacheUpdateService implements CacheUpdateUseCase {
         Long portfolioId = Objects.requireNonNull(req.getPortfolioId(), "portfolioId must not be null");
         Long stockId = Objects.requireNonNull(req.getStockId(), "stockId must not be null");
         Long price = Objects.requireNonNull(req.getPrice(), "price must not be null");
-        Long quantity = Objects.requireNonNull(req.getQuantity(), "quantity must not be null");
+        BigDecimal quantity = Objects.requireNonNull(req.getQuantity(), "quantity must not be null");
         CacheUpdateDto.PortfolioCacheUpdateRequest.TradeType type =
                 Objects.requireNonNull(req.getType(), "type must not be null");
 
-        Long amount = price * quantity;
+        BigDecimal amount = ValuationDecimalSupport.decimalOf(price).multiply(quantity);
 
         try {
             long affectedUsers = switch (type) {
@@ -86,15 +88,15 @@ public class CacheUpdateService implements CacheUpdateUseCase {
         }
     }
 
-    private long updatePortfolioCacheByStockBuy(Long portfolioId, Long stockId, Long quantity, Long amount) {
+    private long updatePortfolioCacheByStockBuy(Long portfolioId, Long stockId, BigDecimal quantity, BigDecimal amount) {
         boolean added = portfolioStateStore.increaseStockQuantity(stockId, portfolioId, quantity);
-        portfolioStateStore.addPurchasedValue(portfolioId, amount);
+        portfolioStateStore.addPurchasedValue(portfolioId, roundToLong(amount));
         portfolioStateStore.addCurrentValue(portfolioId, amount);
         portfolioStateStore.addStockCurrentValue(stockId, portfolioId, amount);
         String userId = userStateStore.findUserIdByPortfolioId(portfolioId);
 
         if (userId != null) {
-            userStateStore.addPurchasedValue(userId, amount);
+            userStateStore.addPurchasedValue(userId, roundToLong(amount));
         }
 
         if (added) {
@@ -105,15 +107,15 @@ public class CacheUpdateService implements CacheUpdateUseCase {
         return userId == null ? 0L : 1L;
     }
 
-    private long updatePortfolioCacheByStockSell(Long portfolioId, Long stockId, Long quantity, Long amount) {
+    private long updatePortfolioCacheByStockSell(Long portfolioId, Long stockId, BigDecimal quantity, BigDecimal amount) {
         boolean removed = portfolioStateStore.decreaseStockQuantity(stockId, portfolioId, quantity);
-        portfolioStateStore.subtractPurchasedValue(portfolioId, amount);
+        portfolioStateStore.subtractPurchasedValue(portfolioId, roundToLong(amount));
         portfolioStateStore.subtractCurrentValue(portfolioId, amount);
         portfolioStateStore.subtractStockCurrentValue(stockId, portfolioId, amount);
         String userId = userStateStore.findUserIdByPortfolioId(portfolioId);
 
         if (userId != null) {
-            userStateStore.subtractPurchasedValue(userId, amount);
+            userStateStore.subtractPurchasedValue(userId, roundToLong(amount));
         }
 
         if (removed) {
@@ -150,12 +152,12 @@ public class CacheUpdateService implements CacheUpdateUseCase {
 
     private void savePortfolioValuationSnapshot(Long portfolioId) {
         Long purchasedValue = portfolioStateStore.findPurchasedValue(portfolioId);
-        Long currentValue = portfolioStateStore.findCurrentValue(portfolioId);
+        BigDecimal currentValue = portfolioStateStore.findCurrentValue(portfolioId);
 
         valuationRepository.savePortfolioValuation(PortfolioValuation.builder()
                 .portfolioId(portfolioId)
                 .purchasedValue(purchasedValue)
-                .currentValue(currentValue)
+                .currentValue(roundToLong(currentValue))
                 .profitRate(calculateProfitRate(purchasedValue, currentValue))
                 .assetCount(portfolioStateStore.findAssetCount(portfolioId))
                 .build());
@@ -163,22 +165,30 @@ public class CacheUpdateService implements CacheUpdateUseCase {
 
     private void saveUserValuationSnapshot(String userId) {
         Long purchasedValue = userStateStore.findPurchasedValue(userId);
-        Long currentValue = userStateStore.calculateCurrentValue(userId);
+        BigDecimal currentValue = userStateStore.calculateCurrentValue(userId);
 
         valuationRepository.saveUserValuation(UserValuation.builder()
                 .userId(userId)
                 .purchasedValue(purchasedValue)
-                .currentValue(currentValue)
+                .currentValue(roundToLong(currentValue))
                 .profitRate(calculateProfitRate(purchasedValue, currentValue))
                 .portfolioCount(userStateStore.findPortfolioCount(userId))
                 .build());
     }
 
-    private Double calculateProfitRate(Long purchasedValue, Long currentValue) {
+    private Double calculateProfitRate(Long purchasedValue, BigDecimal currentValue) {
         if (purchasedValue == 0L) {
             return 0.0;
         }
 
-        return ((double) (currentValue - purchasedValue) / purchasedValue) * 100;
+        return currentValue
+                .subtract(ValuationDecimalSupport.decimalOf(purchasedValue))
+                .divide(ValuationDecimalSupport.decimalOf(purchasedValue), 8, RoundingMode.HALF_UP)
+                .multiply(BigDecimal.valueOf(100))
+                .doubleValue();
+    }
+
+    private Long roundToLong(BigDecimal value) {
+        return ValuationDecimalSupport.toWholeNumber(value);
     }
 }

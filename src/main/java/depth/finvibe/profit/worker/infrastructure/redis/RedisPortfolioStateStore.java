@@ -1,18 +1,22 @@
 package depth.finvibe.profit.worker.infrastructure.redis;
 
 import depth.finvibe.profit.worker.application.ProfitWorkerMetrics;
+import depth.finvibe.profit.worker.application.ValuationDecimalSupport;
 import depth.finvibe.profit.worker.application.port.out.PortfolioStateStore;
 import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Set;
 
 @Component
 @RequiredArgsConstructor
 public class RedisPortfolioStateStore implements PortfolioStateStore {
+
+    private static final String PRECISE_CURRENT_VALUE_FIELD = "cvp";
 
     private final StringRedisTemplate redisTemplate;
     private final ProfitWorkerMetrics metrics;
@@ -35,34 +39,33 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
     }
 
     @Override
-    public Long findCurrentValue(Long portfolioId) {
-        return getHashLong(portfolioHashKey(portfolioId), "cv");
+    public BigDecimal findCurrentValue(Long portfolioId) {
+        return getPortfolioCurrentValue(portfolioId);
     }
 
     @Override
-    public Long calculateCurrentValue(Long portfolioId, Long changedStockId, Long newPrice) {
+    public BigDecimal calculateCurrentValue(Long portfolioId, Long changedStockId, Long newPrice) {
         Timer.Sample sample = metrics.startSample();
         String result = ProfitWorkerMetrics.RESULT_FAILURE;
 
         try {
-            Long quantity = getLong(portfolioStockQuantityKey(portfolioId, changedStockId));
-            if (quantity == 0L) {
+            BigDecimal quantity = getDecimal(portfolioStockQuantityKey(portfolioId, changedStockId));
+            if (quantity.signum() == 0) {
                 result = ProfitWorkerMetrics.RESULT_SUCCESS;
-                return getHashLong(portfolioHashKey(portfolioId), "cv");
+                return getPortfolioCurrentValue(portfolioId);
             }
 
             String stockCurrentValueKey = portfolioStockCurrentValueKey(portfolioId, changedStockId);
-            Long oldStockCurrentValue = getLong(stockCurrentValueKey);
-            Long newStockCurrentValue = newPrice * quantity;
-            Long delta = newStockCurrentValue - oldStockCurrentValue;
+            BigDecimal oldStockCurrentValue = getDecimal(stockCurrentValueKey);
+            BigDecimal newStockCurrentValue = BigDecimal.valueOf(newPrice).multiply(quantity);
+            BigDecimal delta = newStockCurrentValue.subtract(oldStockCurrentValue);
+            BigDecimal nextPortfolioCurrentValue = getPortfolioCurrentValue(portfolioId).add(delta);
 
-            if (delta != 0L) {
-                incrementHash(portfolioHashKey(portfolioId), "cv", delta);
-            }
-            redisTemplate.opsForValue().set(stockCurrentValueKey, String.valueOf(newStockCurrentValue));
+            setHashDecimal(portfolioHashKey(portfolioId), PRECISE_CURRENT_VALUE_FIELD, nextPortfolioCurrentValue);
+            setDecimal(stockCurrentValueKey, newStockCurrentValue);
 
             result = ProfitWorkerMetrics.RESULT_SUCCESS;
-            return getHashLong(portfolioHashKey(portfolioId), "cv");
+            return nextPortfolioCurrentValue;
         } finally {
             metrics.recordRedisDuration(ProfitWorkerMetrics.OPERATION_PORTFOLIO_CURRENT_VALUE, result, sample);
         }
@@ -74,23 +77,24 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
     }
 
     @Override
-    public boolean increaseStockQuantity(Long stockId, Long portfolioId, Long quantity) {
+    public boolean increaseStockQuantity(Long stockId, Long portfolioId, BigDecimal quantity) {
         String quantityKey = portfolioStockQuantityKey(portfolioId, stockId);
-        Long previousQuantity = getLong(quantityKey);
+        BigDecimal previousQuantity = getDecimal(quantityKey);
 
-        increment(quantityKey, quantity);
+        setDecimal(quantityKey, previousQuantity.add(quantity));
         redisTemplate.opsForSet().add(stockPortfoliosKey(stockId), String.valueOf(portfolioId));
         redisTemplate.opsForSet().add(portfolioStocksKey(portfolioId), String.valueOf(stockId));
 
-        return previousQuantity == 0L;
+        return previousQuantity.signum() == 0;
     }
 
     @Override
-    public boolean decreaseStockQuantity(Long stockId, Long portfolioId, Long quantity) {
+    public boolean decreaseStockQuantity(Long stockId, Long portfolioId, BigDecimal quantity) {
         String quantityKey = portfolioStockQuantityKey(portfolioId, stockId);
-        Long nextQuantity = increment(quantityKey, -quantity);
+        BigDecimal nextQuantity = getDecimal(quantityKey).subtract(quantity);
 
-        if (nextQuantity > 0L) {
+        if (nextQuantity.signum() > 0) {
+            setDecimal(quantityKey, nextQuantity);
             return false;
         }
 
@@ -111,27 +115,30 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
     }
 
     @Override
-    public void addCurrentValue(Long portfolioId, Long amount) {
-        incrementHash(portfolioHashKey(portfolioId), "cv", amount);
+    public void addCurrentValue(Long portfolioId, BigDecimal amount) {
+        setHashDecimal(portfolioHashKey(portfolioId), PRECISE_CURRENT_VALUE_FIELD, getPortfolioCurrentValue(portfolioId).add(amount));
     }
 
     @Override
-    public void subtractCurrentValue(Long portfolioId, Long amount) {
-        incrementHash(portfolioHashKey(portfolioId), "cv", -amount);
+    public void subtractCurrentValue(Long portfolioId, BigDecimal amount) {
+        setHashDecimal(portfolioHashKey(portfolioId), PRECISE_CURRENT_VALUE_FIELD, getPortfolioCurrentValue(portfolioId).subtract(amount));
     }
 
     @Override
-    public void addStockCurrentValue(Long stockId, Long portfolioId, Long amount) {
-        increment(portfolioStockCurrentValueKey(portfolioId, stockId), amount);
-    }
-
-    @Override
-    public void subtractStockCurrentValue(Long stockId, Long portfolioId, Long amount) {
+    public void addStockCurrentValue(Long stockId, Long portfolioId, BigDecimal amount) {
         String key = portfolioStockCurrentValueKey(portfolioId, stockId);
-        Long nextValue = increment(key, -amount);
-        if (nextValue <= 0L) {
+        setDecimal(key, getDecimal(key).add(amount));
+    }
+
+    @Override
+    public void subtractStockCurrentValue(Long stockId, Long portfolioId, BigDecimal amount) {
+        String key = portfolioStockCurrentValueKey(portfolioId, stockId);
+        BigDecimal nextValue = getDecimal(key).subtract(amount);
+        if (nextValue.signum() <= 0) {
             redisTemplate.delete(key);
+            return;
         }
+        setDecimal(key, nextValue);
     }
 
     @Override
@@ -167,20 +174,20 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
         return Long.valueOf(value.toString());
     }
 
-    private Long getLong(String key) {
-        String value = redisTemplate.opsForValue().get(key);
+    private BigDecimal getHashDecimal(String key, String field) {
+        Object value = redisTemplate.opsForHash().get(key, field);
         if (value == null) {
-            return 0L;
+            return BigDecimal.ZERO;
         }
-        return Long.valueOf(value);
+        return new BigDecimal(value.toString());
     }
 
-    private Long increment(String key, Long delta) {
-        Long value = redisTemplate.opsForValue().increment(key, delta);
+    private BigDecimal getDecimal(String key) {
+        String value = redisTemplate.opsForValue().get(key);
         if (value == null) {
-            return 0L;
+            return BigDecimal.ZERO;
         }
-        return value;
+        return new BigDecimal(value);
     }
 
     private Long incrementHash(String key, String field, Long delta) {
@@ -189,6 +196,27 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
             return 0L;
         }
         return value;
+    }
+
+    private BigDecimal getPortfolioCurrentValue(Long portfolioId) {
+        String key = portfolioHashKey(portfolioId);
+        Object preciseValue = redisTemplate.opsForHash().get(key, PRECISE_CURRENT_VALUE_FIELD);
+        if (preciseValue != null) {
+            return new BigDecimal(preciseValue.toString());
+        }
+        return BigDecimal.valueOf(getHashLong(key, "cv"));
+    }
+
+    private void setDecimal(String key, BigDecimal value) {
+        redisTemplate.opsForValue().set(key, toPlainString(value));
+    }
+
+    private void setHashDecimal(String key, String field, BigDecimal value) {
+        redisTemplate.opsForHash().put(key, field, toPlainString(value));
+    }
+
+    private String toPlainString(BigDecimal value) {
+        return ValuationDecimalSupport.normalized(value).toPlainString();
     }
 
     private String stockPortfoliosKey(Long stockId) {
