@@ -1,11 +1,16 @@
 package depth.finvibe.profit.worker.application;
 
 import io.micrometer.core.instrument.DistributionSummary;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Component
 public class ProfitWorkerMetrics {
@@ -18,6 +23,9 @@ public class ProfitWorkerMetrics {
     public static final String AFFECTED_PORTFOLIOS = "profit.worker.affected.portfolios";
     public static final String AFFECTED_USERS = "profit.worker.affected.users";
     public static final String EVENT_AGE = "profit.worker.event.age";
+    public static final String LAST_LISTENER_DURATION = "profit.worker.listener.last.duration";
+    public static final String LAST_SERVICE_DURATION = "profit.worker.service.last.duration";
+    public static final String LAST_EVENT_AGE = "profit.worker.event.last.age";
 
     public static final String TAG_EVENT_TYPE = "event_type";
     public static final String TAG_RESULT = "result";
@@ -43,6 +51,9 @@ public class ProfitWorkerMetrics {
     public static final String OPERATION_USER_VALUATION_SAVE = "user_valuation_save";
 
     private final MeterRegistry meterRegistry;
+    private final Map<String, AtomicLong> lastListenerDurationNanos = new ConcurrentHashMap<>();
+    private final Map<String, AtomicLong> lastServiceDurationNanos = new ConcurrentHashMap<>();
+    private final Map<String, AtomicLong> lastEventAgeNanos = new ConcurrentHashMap<>();
 
     public ProfitWorkerMetrics(MeterRegistry meterRegistry) {
         this.meterRegistry = meterRegistry;
@@ -65,17 +76,25 @@ public class ProfitWorkerMetrics {
     }
 
     public void recordListenerDuration(String eventType, String result, Timer.Sample sample) {
-        safeRecord(() -> sample.stop(Timer.builder(LISTENER_DURATION)
+        safeRecord(() -> {
+            long nanos = sample.stop(Timer.builder(LISTENER_DURATION)
                 .tag(TAG_EVENT_TYPE, eventType)
                 .tag(TAG_RESULT, result)
-                .register(meterRegistry)));
+                .register(meterRegistry));
+            updateLastDurationGauge(lastListenerDurationNanos, LAST_LISTENER_DURATION,
+                    Tags.of(TAG_EVENT_TYPE, eventType, TAG_RESULT, result), nanos);
+        });
     }
 
     public void recordServiceDuration(String operation, String result, Timer.Sample sample) {
-        safeRecord(() -> sample.stop(Timer.builder(SERVICE_DURATION)
+        safeRecord(() -> {
+            long nanos = sample.stop(Timer.builder(SERVICE_DURATION)
                 .tag(TAG_OPERATION, operation)
                 .tag(TAG_RESULT, result)
-                .register(meterRegistry)));
+                .register(meterRegistry));
+            updateLastDurationGauge(lastServiceDurationNanos, LAST_SERVICE_DURATION,
+                    Tags.of(TAG_OPERATION, operation, TAG_RESULT, result), nanos);
+        });
     }
 
     public void recordRedisDuration(String operation, String result, Timer.Sample sample) {
@@ -104,10 +123,35 @@ public class ProfitWorkerMetrics {
             return;
         }
 
-        safeRecord(() -> Timer.builder(EVENT_AGE)
+        safeRecord(() -> {
+            Timer.builder(EVENT_AGE)
                 .tag(TAG_EVENT_TYPE, eventType)
                 .register(meterRegistry)
-                .record(duration));
+                .record(duration);
+            updateLastDurationGauge(lastEventAgeNanos, LAST_EVENT_AGE,
+                    Tags.of(TAG_EVENT_TYPE, eventType), duration.toNanos());
+        });
+    }
+
+    private void updateLastDurationGauge(
+            Map<String, AtomicLong> values,
+            String meterName,
+            Tags tags,
+            long nanos
+    ) {
+        String key = meterName + tags.stream()
+                .map(tag -> tag.getKey() + "=" + tag.getValue())
+                .reduce("", (left, right) -> left + "|" + right);
+        AtomicLong holder = values.computeIfAbsent(key, ignored -> registerDurationGauge(meterName, tags));
+        holder.set(nanos);
+    }
+
+    private AtomicLong registerDurationGauge(String meterName, Tags tags) {
+        AtomicLong holder = new AtomicLong();
+        Gauge.builder(meterName, holder, value -> value.get() / 1_000_000_000.0)
+                .tags(tags)
+                .register(meterRegistry);
+        return holder;
     }
 
     private void safeRecord(Runnable recording) {

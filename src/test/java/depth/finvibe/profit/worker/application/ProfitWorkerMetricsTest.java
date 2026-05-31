@@ -28,6 +28,10 @@ class ProfitWorkerMetricsTest {
                 .tags(ProfitWorkerMetrics.TAG_EVENT_TYPE, ProfitWorkerMetrics.EVENT_TYPE_STOCK_PRICE_UPDATED,
                         ProfitWorkerMetrics.TAG_RESULT, ProfitWorkerMetrics.RESULT_SUCCESS)
                 .timer().count()).isEqualTo(1);
+        assertThat(registry.find(ProfitWorkerMetrics.LAST_LISTENER_DURATION)
+                .tags(ProfitWorkerMetrics.TAG_EVENT_TYPE, ProfitWorkerMetrics.EVENT_TYPE_STOCK_PRICE_UPDATED,
+                        ProfitWorkerMetrics.TAG_RESULT, ProfitWorkerMetrics.RESULT_SUCCESS)
+                .gauge().value()).isGreaterThanOrEqualTo(0.0);
         assertThat(registry.find(ProfitWorkerMetrics.AFFECTED_PORTFOLIOS)
                 .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION)
                 .summary().totalAmount()).isEqualTo(2.0);
@@ -43,5 +47,23 @@ class ProfitWorkerMetricsTest {
         assertThat(registry.find(ProfitWorkerMetrics.EVENT_AGE)
                 .tags(ProfitWorkerMetrics.TAG_EVENT_TYPE, ProfitWorkerMetrics.EVENT_TYPE_PORTFOLIO_USER)
                 .timer()).isNull();
+        assertThat(registry.find(ProfitWorkerMetrics.LAST_EVENT_AGE)
+                .tags(ProfitWorkerMetrics.TAG_EVENT_TYPE, ProfitWorkerMetrics.EVENT_TYPE_PORTFOLIO_USER)
+                .gauge()).isNull();
+    }
+
+    @Test
+    void recordsLastEventAgeGauge() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        ProfitWorkerMetrics metrics = new ProfitWorkerMetrics(registry);
+
+        metrics.recordEventAge(ProfitWorkerMetrics.EVENT_TYPE_PORTFOLIO_USER, Duration.ofSeconds(3));
+
+        assertThat(registry.find(ProfitWorkerMetrics.EVENT_AGE)
+                .tags(ProfitWorkerMetrics.TAG_EVENT_TYPE, ProfitWorkerMetrics.EVENT_TYPE_PORTFOLIO_USER)
+                .timer().count()).isEqualTo(1);
+        assertThat(registry.find(ProfitWorkerMetrics.LAST_EVENT_AGE)
+                .tags(ProfitWorkerMetrics.TAG_EVENT_TYPE, ProfitWorkerMetrics.EVENT_TYPE_PORTFOLIO_USER)
+                .gauge().value()).isEqualTo(3.0);
     }
 }
