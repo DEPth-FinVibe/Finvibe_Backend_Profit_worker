@@ -32,6 +32,20 @@ class ProfitWorkerMetricsTest {
                 .tags(ProfitWorkerMetrics.TAG_EVENT_TYPE, ProfitWorkerMetrics.EVENT_TYPE_STOCK_PRICE_UPDATED,
                         ProfitWorkerMetrics.TAG_RESULT, ProfitWorkerMetrics.RESULT_SUCCESS)
                 .gauge().value()).isGreaterThanOrEqualTo(0.0);
+        Timer.Sample serviceSample = metrics.startSample();
+        metrics.recordPhaseDuration(
+                ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION,
+                ProfitWorkerMetrics.PHASE_PORTFOLIO_FANOUT,
+                ProfitWorkerMetrics.RESULT_SUCCESS,
+                serviceSample
+        );
+        assertThat(registry.find(ProfitWorkerMetrics.PHASE_DURATION)
+                .tags(
+                        ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION,
+                        ProfitWorkerMetrics.TAG_PHASE, ProfitWorkerMetrics.PHASE_PORTFOLIO_FANOUT,
+                        ProfitWorkerMetrics.TAG_RESULT, ProfitWorkerMetrics.RESULT_SUCCESS
+                )
+                .timer().count()).isEqualTo(1);
         assertThat(registry.find(ProfitWorkerMetrics.AFFECTED_PORTFOLIOS)
                 .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION)
                 .summary().totalAmount()).isEqualTo(2.0);
@@ -65,5 +79,21 @@ class ProfitWorkerMetricsTest {
         assertThat(registry.find(ProfitWorkerMetrics.LAST_EVENT_AGE)
                 .tags(ProfitWorkerMetrics.TAG_EVENT_TYPE, ProfitWorkerMetrics.EVENT_TYPE_PORTFOLIO_USER)
                 .gauge().value()).isEqualTo(3.0);
+    }
+
+    @Test
+    void recordsRedisCommandDuration() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        ProfitWorkerMetrics metrics = new ProfitWorkerMetrics(registry);
+
+        Timer.Sample sample = metrics.startSample();
+        metrics.recordRedisCommandDuration("hash_get", ProfitWorkerMetrics.RESULT_SUCCESS, sample);
+
+        assertThat(registry.find(ProfitWorkerMetrics.REDIS_COMMAND_DURATION)
+                .tags(
+                        ProfitWorkerMetrics.TAG_COMMAND, "hash_get",
+                        ProfitWorkerMetrics.TAG_RESULT, ProfitWorkerMetrics.RESULT_SUCCESS
+                )
+                .timer().count()).isEqualTo(1);
     }
 }

@@ -28,7 +28,7 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
             Long portfolioId = valuation.getPortfolioId();
             Instant updatedAt = Instant.now();
 
-            redisTemplate.opsForHash().putAll(portfolioHashKey(portfolioId), Map.of(
+            hashPutAll(portfolioHashKey(portfolioId), Map.of(
                     "pv", String.valueOf(valuation.getPurchasedValue()),
                     "cv", String.valueOf(valuation.getCurrentValue()),
                     "pr", String.valueOf(valuation.getProfitRate()),
@@ -36,7 +36,7 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
                     "del", "0",
                     "ua", updatedAt.toString()
             ));
-            redisTemplate.opsForSet().add(dirtyPortfolioValuationsKey(), String.valueOf(portfolioId));
+            setAdd(dirtyPortfolioValuationsKey(), String.valueOf(portfolioId));
             result = ProfitWorkerMetrics.RESULT_SUCCESS;
         } finally {
             metrics.recordRedisDuration(ProfitWorkerMetrics.OPERATION_PORTFOLIO_VALUATION_SAVE, result, sample);
@@ -46,11 +46,11 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
     @Override
     public void markPortfolioValuationDeleted(Long portfolioId) {
         Instant deletedAt = Instant.now();
-        redisTemplate.opsForHash().putAll(portfolioHashKey(portfolioId), Map.of(
+        hashPutAll(portfolioHashKey(portfolioId), Map.of(
                 "del", "1",
                 "da", deletedAt.toString()
         ));
-        redisTemplate.opsForSet().add(dirtyPortfolioValuationDeletionsKey(), String.valueOf(portfolioId));
+        setAdd(dirtyPortfolioValuationDeletionsKey(), String.valueOf(portfolioId));
     }
 
     @Override
@@ -62,17 +62,39 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
             String userId = valuation.getUserId();
             Instant updatedAt = Instant.now();
 
-            redisTemplate.opsForHash().putAll(userHashKey(userId), Map.of(
+            hashPutAll(userHashKey(userId), Map.of(
                     "pv", String.valueOf(valuation.getPurchasedValue()),
                     "cv", String.valueOf(valuation.getCurrentValue()),
                     "pr", String.valueOf(valuation.getProfitRate()),
                     "pc", String.valueOf(valuation.getPortfolioCount()),
                     "ua", updatedAt.toString()
             ));
-            redisTemplate.opsForSet().add(dirtyUserValuationsKey(), String.valueOf(userId));
+            setAdd(dirtyUserValuationsKey(), String.valueOf(userId));
             result = ProfitWorkerMetrics.RESULT_SUCCESS;
         } finally {
             metrics.recordRedisDuration(ProfitWorkerMetrics.OPERATION_USER_VALUATION_SAVE, result, sample);
+        }
+    }
+
+    private void hashPutAll(String key, Map<String, String> values) {
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
+        try {
+            redisTemplate.opsForHash().putAll(key, values);
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
+        } finally {
+            metrics.recordRedisCommandDuration("hash_put_all", result, sample);
+        }
+    }
+
+    private void setAdd(String key, String member) {
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
+        try {
+            redisTemplate.opsForSet().add(key, member);
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
+        } finally {
+            metrics.recordRedisCommandDuration("set_add", result, sample);
         }
     }
 

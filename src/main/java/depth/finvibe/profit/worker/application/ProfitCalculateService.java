@@ -57,9 +57,32 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
         Long newPrice = Objects.requireNonNull(request.getNewPrice(), "newPrice must not be null");
 
         try {
+            Timer.Sample reverseIndexSample = metrics.startSample();
             List<Long> portfolioIds = portfolioStateStore.findPortfolioIdsByStockId(stockId);
+            metrics.recordPhaseDuration(
+                    ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION,
+                    ProfitWorkerMetrics.PHASE_REVERSE_INDEX_LOOKUP,
+                    ProfitWorkerMetrics.RESULT_SUCCESS,
+                    reverseIndexSample
+            );
+
+            Timer.Sample portfolioFanoutSample = metrics.startSample();
             Set<String> affectedUserIds = recalculatePortfolios(portfolioIds, stockId, newPrice);
+            metrics.recordPhaseDuration(
+                    ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION,
+                    ProfitWorkerMetrics.PHASE_PORTFOLIO_FANOUT,
+                    ProfitWorkerMetrics.RESULT_SUCCESS,
+                    portfolioFanoutSample
+            );
+
+            Timer.Sample userFanoutSample = metrics.startSample();
             recalculateUsers(affectedUserIds);
+            metrics.recordPhaseDuration(
+                    ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION,
+                    ProfitWorkerMetrics.PHASE_USER_FANOUT,
+                    ProfitWorkerMetrics.RESULT_SUCCESS,
+                    userFanoutSample
+            );
 
             metrics.recordAffectedPortfolios(ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION, portfolioIds.size());
             metrics.recordAffectedUsers(ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION, affectedUserIds.size());

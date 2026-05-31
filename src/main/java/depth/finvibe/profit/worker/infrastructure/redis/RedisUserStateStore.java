@@ -19,7 +19,7 @@ public class RedisUserStateStore implements UserStateStore {
 
     @Override
     public String findUserIdByPortfolioId(Long portfolioId) {
-        Object value = redisTemplate.opsForHash().get(portfolioHashKey(portfolioId), "u");
+        Object value = hashGet(portfolioHashKey(portfolioId), "u");
         return value == null ? null : value.toString();
     }
 
@@ -34,7 +34,7 @@ public class RedisUserStateStore implements UserStateStore {
         String result = ProfitWorkerMetrics.RESULT_FAILURE;
 
         try {
-            Set<String> portfolioIds = redisTemplate.opsForSet().members(userPortfoliosKey(userId));
+            Set<String> portfolioIds = setMembers(userPortfoliosKey(userId));
             if (portfolioIds == null) {
                 result = ProfitWorkerMetrics.RESULT_SUCCESS;
                 return BigDecimal.ZERO;
@@ -93,7 +93,7 @@ public class RedisUserStateStore implements UserStateStore {
     }
 
     private Long getHashLong(String key, String field) {
-        Object value = redisTemplate.opsForHash().get(key, field);
+        Object value = hashGet(key, field);
         if (value == null) {
             return 0L;
         }
@@ -101,7 +101,7 @@ public class RedisUserStateStore implements UserStateStore {
     }
 
     private Long incrementHash(String key, String field, Long delta) {
-        Long value = redisTemplate.opsForHash().increment(key, field, delta);
+        Long value = hashIncrement(key, field, delta);
         if (value == null) {
             return 0L;
         }
@@ -110,11 +110,47 @@ public class RedisUserStateStore implements UserStateStore {
 
     private BigDecimal getPortfolioCurrentValue(Long portfolioId) {
         String key = portfolioHashKey(portfolioId);
-        Object preciseValue = redisTemplate.opsForHash().get(key, "cvp");
+        Object preciseValue = hashGet(key, "cvp");
         if (preciseValue != null) {
             return new BigDecimal(preciseValue.toString());
         }
         return BigDecimal.valueOf(getHashLong(key, "cv"));
+    }
+
+    private Object hashGet(String key, String field) {
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
+        try {
+            Object value = redisTemplate.opsForHash().get(key, field);
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
+            return value;
+        } finally {
+            metrics.recordRedisCommandDuration("hash_get", result, sample);
+        }
+    }
+
+    private Long hashIncrement(String key, String field, Long delta) {
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
+        try {
+            Long value = redisTemplate.opsForHash().increment(key, field, delta);
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
+            return value;
+        } finally {
+            metrics.recordRedisCommandDuration("hash_increment", result, sample);
+        }
+    }
+
+    private Set<String> setMembers(String key) {
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
+        try {
+            Set<String> values = redisTemplate.opsForSet().members(key);
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
+            return values;
+        } finally {
+            metrics.recordRedisCommandDuration("set_members", result, sample);
+        }
     }
 
     private String portfolioHashKey(Long portfolioId) {

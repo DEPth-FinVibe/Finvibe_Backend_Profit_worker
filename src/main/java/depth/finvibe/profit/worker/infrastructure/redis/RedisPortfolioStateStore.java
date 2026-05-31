@@ -23,7 +23,7 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
 
     @Override
     public List<Long> findPortfolioIdsByStockId(Long stockId) {
-        Set<String> portfolioIds = redisTemplate.opsForSet().members(stockPortfoliosKey(stockId));
+        Set<String> portfolioIds = members(stockPortfoliosKey(stockId));
         if (portfolioIds == null) {
             return List.of();
         }
@@ -167,7 +167,7 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
     }
 
     private Long getHashLong(String key, String field) {
-        Object value = redisTemplate.opsForHash().get(key, field);
+        Object value = hashGet(key, field);
         if (value == null) {
             return 0L;
         }
@@ -175,7 +175,7 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
     }
 
     private BigDecimal getHashDecimal(String key, String field) {
-        Object value = redisTemplate.opsForHash().get(key, field);
+        Object value = hashGet(key, field);
         if (value == null) {
             return BigDecimal.ZERO;
         }
@@ -183,7 +183,7 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
     }
 
     private BigDecimal getDecimal(String key) {
-        String value = redisTemplate.opsForValue().get(key);
+        String value = valueGet(key);
         if (value == null) {
             return BigDecimal.ZERO;
         }
@@ -191,7 +191,7 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
     }
 
     private Long incrementHash(String key, String field, Long delta) {
-        Long value = redisTemplate.opsForHash().increment(key, field, delta);
+        Long value = hashIncrement(key, field, delta);
         if (value == null) {
             return 0L;
         }
@@ -200,7 +200,7 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
 
     private BigDecimal getPortfolioCurrentValue(Long portfolioId) {
         String key = portfolioHashKey(portfolioId);
-        Object preciseValue = redisTemplate.opsForHash().get(key, PRECISE_CURRENT_VALUE_FIELD);
+        Object preciseValue = hashGet(key, PRECISE_CURRENT_VALUE_FIELD);
         if (preciseValue != null) {
             return new BigDecimal(preciseValue.toString());
         }
@@ -208,11 +208,81 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
     }
 
     private void setDecimal(String key, BigDecimal value) {
-        redisTemplate.opsForValue().set(key, toPlainString(value));
+        valueSet(key, toPlainString(value));
     }
 
     private void setHashDecimal(String key, String field, BigDecimal value) {
-        redisTemplate.opsForHash().put(key, field, toPlainString(value));
+        hashPut(key, field, toPlainString(value));
+    }
+
+    private Object hashGet(String key, String field) {
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
+        try {
+            Object value = redisTemplate.opsForHash().get(key, field);
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
+            return value;
+        } finally {
+            metrics.recordRedisCommandDuration("hash_get", result, sample);
+        }
+    }
+
+    private void hashPut(String key, String field, String value) {
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
+        try {
+            redisTemplate.opsForHash().put(key, field, value);
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
+        } finally {
+            metrics.recordRedisCommandDuration("hash_put", result, sample);
+        }
+    }
+
+    private Long hashIncrement(String key, String field, Long delta) {
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
+        try {
+            Long value = redisTemplate.opsForHash().increment(key, field, delta);
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
+            return value;
+        } finally {
+            metrics.recordRedisCommandDuration("hash_increment", result, sample);
+        }
+    }
+
+    private String valueGet(String key) {
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
+        try {
+            String value = redisTemplate.opsForValue().get(key);
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
+            return value;
+        } finally {
+            metrics.recordRedisCommandDuration("value_get", result, sample);
+        }
+    }
+
+    private void valueSet(String key, String value) {
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
+        try {
+            redisTemplate.opsForValue().set(key, value);
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
+        } finally {
+            metrics.recordRedisCommandDuration("value_set", result, sample);
+        }
+    }
+
+    private Set<String> members(String key) {
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
+        try {
+            Set<String> values = redisTemplate.opsForSet().members(key);
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
+            return values;
+        } finally {
+            metrics.recordRedisCommandDuration("set_members", result, sample);
+        }
     }
 
     private String toPlainString(BigDecimal value) {
