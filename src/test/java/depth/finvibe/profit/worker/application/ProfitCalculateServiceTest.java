@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -31,7 +32,8 @@ class ProfitCalculateServiceTest {
                 portfolioStateStore,
                 userStateStore,
                 valuationRepository,
-                fixture.metrics()
+                fixture.metrics(),
+                Runnable::run
         );
 
         service.updateProfitByStockPriceChange(ProfitCalculationDto.ProfitCalculationRequest.builder()
@@ -80,7 +82,8 @@ class ProfitCalculateServiceTest {
                 portfolioStateStore,
                 userStateStore,
                 valuationRepository,
-                fixture.metrics()
+                fixture.metrics(),
+                Runnable::run
         );
 
         service.updateProfitByStockPriceChange(ProfitCalculationDto.ProfitCalculationRequest.builder()
@@ -106,7 +109,8 @@ class ProfitCalculateServiceTest {
                 portfolioStateStore,
                 userStateStore,
                 valuationRepository,
-                fixture.metrics()
+                fixture.metrics(),
+                Runnable::run
         );
 
         service.updateProfitByStockPriceChange(ProfitCalculationDto.ProfitCalculationRequest.builder()
@@ -130,7 +134,8 @@ class ProfitCalculateServiceTest {
                 portfolioStateStore,
                 userStateStore,
                 valuationRepository,
-                fixture.metrics()
+                fixture.metrics(),
+                Runnable::run
         );
 
         service.updateProfitByStockPriceChange(ProfitCalculationDto.ProfitCalculationRequest.builder()
@@ -309,8 +314,8 @@ class ProfitCalculateServiceTest {
 
     private static class FakeValuationRepository implements ValuationRepository {
 
-        private final Map<Long, PortfolioValuation> portfolioValuations = new HashMap<>();
-        private final Map<String, UserValuation> userValuations = new HashMap<>();
+        private final Map<Long, PortfolioValuation> portfolioValuations = new ConcurrentHashMap<>();
+        private final Map<String, UserValuation> userValuations = new ConcurrentHashMap<>();
         private final List<UserValuation> savedUserValuations = new ArrayList<>();
 
         @Override

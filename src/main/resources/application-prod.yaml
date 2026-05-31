@@ -42,6 +42,10 @@ logging:
     depth.finvibe.profit.worker: INFO
 
 app:
+  profit:
+    recalculation:
+      parallelism: ${PROFIT_RECALCULATION_PARALLELISM:4}
+      queue-capacity: ${PROFIT_RECALCULATION_QUEUE_CAPACITY:256}
   kafka:
     topics:
       stock-price-updated: ${KAFKA_TOPIC_STOCK_PRICE_UPDATED:market.stock-price-updated.v1}
