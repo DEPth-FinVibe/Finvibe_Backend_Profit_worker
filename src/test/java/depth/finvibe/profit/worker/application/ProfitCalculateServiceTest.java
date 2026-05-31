@@ -185,6 +185,12 @@ class ProfitCalculateServiceTest {
         }
 
         @Override
+        public PortfolioCurrentValueUpdate recalculateCurrentValue(Long portfolioId, Long changedStockId, Long newPrice) {
+            BigDecimal currentValue = currentValues.get(portfolioId);
+            return new PortfolioCurrentValueUpdate(currentValue, currentValue, currentValue);
+        }
+
+        @Override
         public Long findAssetCount(Long portfolioId) {
             return assetCounts.get(portfolioId);
         }
@@ -252,6 +258,7 @@ class ProfitCalculateServiceTest {
         private final Map<String, List<Long>> portfolioIdsByUserId = new HashMap<>(Map.of("100", List.of(1L, 2L)));
         private final Map<String, Long> purchasedValues = new HashMap<>(Map.of("100", 2_000L));
         private final Map<String, Long> portfolioCounts = Map.of("100", 2L);
+        private final Map<String, BigDecimal> currentValues = new HashMap<>(Map.of("100", new BigDecimal("0")));
 
         private FakeUserStateStore(FakeValuationRepository valuationRepository) {
             this.valuationRepository = valuationRepository;
@@ -274,6 +281,18 @@ class ProfitCalculateServiceTest {
                     .map(PortfolioValuation::getCurrentValue)
                     .map(BigDecimal::valueOf)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
+        }
+
+        @Override
+        public BigDecimal findCurrentValue(String userId) {
+            return currentValues.getOrDefault(userId, BigDecimal.ZERO);
+        }
+
+        @Override
+        public BigDecimal addCurrentValue(String userId, BigDecimal delta) {
+            BigDecimal nextValue = currentValues.getOrDefault(userId, BigDecimal.ZERO).add(delta);
+            currentValues.put(userId, nextValue);
+            return nextValue;
         }
 
         @Override

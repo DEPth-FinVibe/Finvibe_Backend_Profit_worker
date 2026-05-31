@@ -32,6 +32,23 @@ public interface UserStateStore {
     BigDecimal calculateCurrentValue(String userId);
 
     /**
+     * 유저 현재 평가액을 조회한다.
+     *
+     * @param userId 유저 ID
+     * @return 유저 현재 평가액
+     */
+    BigDecimal findCurrentValue(String userId);
+
+    /**
+     * 유저 현재 평가액에 delta를 누적 반영한다.
+     *
+     * @param userId 유저 ID
+     * @param delta 반영할 평가액 변화량
+     * @return 반영 후 유저 현재 평가액
+     */
+    BigDecimal addCurrentValue(String userId, BigDecimal delta);
+
+    /**
      * 유저의 보유 포트폴리오 수를 조회한다.
      *
      * @param userId 유저 ID

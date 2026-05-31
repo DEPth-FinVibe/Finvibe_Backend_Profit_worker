@@ -262,6 +262,11 @@ class CacheUpdateServiceTest {
         }
 
         @Override
+        public PortfolioCurrentValueUpdate recalculateCurrentValue(Long portfolioId, Long changedStockId, Long newPrice) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
         public Long findAssetCount(Long portfolioId) {
             return assetCounts.getOrDefault(portfolioId, 0L);
         }
@@ -361,6 +366,7 @@ class CacheUpdateServiceTest {
         private final Map<String, Long> purchasedValues = new HashMap<>();
         private final Map<String, Long> portfolioCounts = new HashMap<>();
         private final Map<String, Set<Long>> portfolioIdsByUserId = new HashMap<>();
+        private final Map<String, BigDecimal> currentValues = new HashMap<>();
 
         private FakeUserStateStore(FakePortfolioStateStore portfolioStateStore) {
             this.portfolioStateStore = portfolioStateStore;
@@ -384,6 +390,18 @@ class CacheUpdateServiceTest {
                     .map(portfolioStateStore.currentValues::get)
                     .filter(value -> value != null)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
+        }
+
+        @Override
+        public BigDecimal findCurrentValue(String userId) {
+            return currentValues.getOrDefault(userId, calculateCurrentValue(userId));
+        }
+
+        @Override
+        public BigDecimal addCurrentValue(String userId, BigDecimal delta) {
+            BigDecimal nextValue = currentValues.getOrDefault(userId, BigDecimal.ZERO).add(delta);
+            currentValues.put(userId, nextValue);
+            return nextValue;
         }
 
         @Override

@@ -13,10 +13,12 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.Map;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
@@ -67,7 +69,7 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
             );
 
             Timer.Sample portfolioFanoutSample = metrics.startSample();
-            Set<String> affectedUserIds = recalculatePortfolios(portfolioIds, stockId, newPrice);
+            Map<String, BigDecimal> userDeltaByUserId = recalculatePortfolios(portfolioIds, stockId, newPrice);
             metrics.recordPhaseDuration(
                     ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION,
                     ProfitWorkerMetrics.PHASE_PORTFOLIO_FANOUT,
@@ -76,7 +78,7 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
             );
 
             Timer.Sample userFanoutSample = metrics.startSample();
-            recalculateUsers(affectedUserIds);
+            recalculateUsers(userDeltaByUserId);
             metrics.recordPhaseDuration(
                     ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION,
                     ProfitWorkerMetrics.PHASE_USER_FANOUT,
@@ -85,27 +87,31 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
             );
 
             metrics.recordAffectedPortfolios(ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION, portfolioIds.size());
-            metrics.recordAffectedUsers(ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION, affectedUserIds.size());
+            metrics.recordAffectedUsers(ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION, userDeltaByUserId.size());
             result = ProfitWorkerMetrics.RESULT_SUCCESS;
         } finally {
             metrics.recordServiceDuration(ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION, result, sample);
         }
     }
 
-    private Set<String> recalculatePortfolios(List<Long> portfolioIds, Long stockId, Long newPrice) {
-        return portfolioIds.stream()
+    private Map<String, BigDecimal> recalculatePortfolios(List<Long> portfolioIds, Long stockId, Long newPrice) {
+        Map<String, BigDecimal> userDeltaByUserId = new ConcurrentHashMap<>();
+        portfolioIds.stream()
                 .map(portfolioId -> CompletableFuture.supplyAsync(
                         () -> recalculatePortfolio(portfolioId, stockId, newPrice),
                         recalculationExecutor
                 ))
                 .map(this::joinFuture)
                 .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
+                .forEach(update -> userDeltaByUserId.merge(update.userId(), update.delta(), BigDecimal::add));
+        return userDeltaByUserId;
     }
 
-    private String recalculatePortfolio(Long portfolioId, Long stockId, Long newPrice) {
+    private UserDeltaUpdate recalculatePortfolio(Long portfolioId, Long stockId, Long newPrice) {
         Long purchasedValue = portfolioStateStore.findPurchasedValue(portfolioId);
-        BigDecimal currentValue = portfolioStateStore.calculateCurrentValue(portfolioId, stockId, newPrice);
+        PortfolioStateStore.PortfolioCurrentValueUpdate currentValueUpdate =
+                portfolioStateStore.recalculateCurrentValue(portfolioId, stockId, newPrice);
+        BigDecimal currentValue = currentValueUpdate.currentValue();
 
         valuationRepository.savePortfolioValuation(PortfolioValuation.builder()
                 .portfolioId(portfolioId)
@@ -115,18 +121,25 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
                 .assetCount(portfolioStateStore.findAssetCount(portfolioId))
                 .build());
 
-        return userStateStore.findUserIdByPortfolioId(portfolioId);
+        String userId = userStateStore.findUserIdByPortfolioId(portfolioId);
+        if (userId == null) {
+            return null;
+        }
+        return new UserDeltaUpdate(userId, currentValueUpdate.delta());
     }
 
-    private void recalculateUsers(Set<String> affectedUserIds) {
-        affectedUserIds.stream()
-                .map(userId -> CompletableFuture.runAsync(() -> recalculateUser(userId), recalculationExecutor))
+    private void recalculateUsers(Map<String, BigDecimal> userDeltaByUserId) {
+        userDeltaByUserId.entrySet().stream()
+                .map(entry -> CompletableFuture.runAsync(
+                        () -> recalculateUser(entry.getKey(), entry.getValue()),
+                        recalculationExecutor
+                ))
                 .forEach(this::joinFuture);
     }
 
-    private void recalculateUser(String userId) {
+    private void recalculateUser(String userId, BigDecimal delta) {
         Long purchasedValue = userStateStore.findPurchasedValue(userId);
-        BigDecimal currentValue = userStateStore.calculateCurrentValue(userId);
+        BigDecimal currentValue = userStateStore.addCurrentValue(userId, delta);
 
         valuationRepository.saveUserValuation(UserValuation.builder()
                 .userId(userId)
@@ -162,5 +175,8 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
 
     private Long roundToLong(BigDecimal value) {
         return ValuationDecimalSupport.toWholeNumber(value);
+    }
+
+    private record UserDeltaUpdate(String userId, BigDecimal delta) {
     }
 }

@@ -43,6 +43,16 @@ public interface PortfolioStateStore {
     BigDecimal calculateCurrentValue(Long portfolioId, Long changedStockId, Long newPrice);
 
     /**
+     * 변경된 종목 가격을 반영하고, 포트폴리오 현재 평가액의 delta를 함께 반환한다.
+     *
+     * @param portfolioId 포트폴리오 ID
+     * @param changedStockId 가격이 변경된 종목 ID
+     * @param newPrice 변경된 종목의 신규 가격
+     * @return 이전/이후 평가액과 delta
+     */
+    PortfolioCurrentValueUpdate recalculateCurrentValue(Long portfolioId, Long changedStockId, Long newPrice);
+
+    /**
      * 포트폴리오의 보유 종목 수를 조회한다.
      *
      * @param portfolioId 포트폴리오 ID
@@ -140,4 +150,11 @@ public interface PortfolioStateStore {
      * @param portfolioId 포트폴리오 ID
      */
     void deletePortfolioState(Long portfolioId);
+
+    record PortfolioCurrentValueUpdate(
+            BigDecimal previousCurrentValue,
+            BigDecimal currentValue,
+            BigDecimal delta
+    ) {
+    }
 }

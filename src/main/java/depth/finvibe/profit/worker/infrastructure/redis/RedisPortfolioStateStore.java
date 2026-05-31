@@ -45,6 +45,11 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
 
     @Override
     public BigDecimal calculateCurrentValue(Long portfolioId, Long changedStockId, Long newPrice) {
+        return recalculateCurrentValue(portfolioId, changedStockId, newPrice).currentValue();
+    }
+
+    @Override
+    public PortfolioCurrentValueUpdate recalculateCurrentValue(Long portfolioId, Long changedStockId, Long newPrice) {
         Timer.Sample sample = metrics.startSample();
         String result = ProfitWorkerMetrics.RESULT_FAILURE;
 
@@ -52,20 +57,22 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
             BigDecimal quantity = getDecimal(portfolioStockQuantityKey(portfolioId, changedStockId));
             if (quantity.signum() == 0) {
                 result = ProfitWorkerMetrics.RESULT_SUCCESS;
-                return getPortfolioCurrentValue(portfolioId);
+                BigDecimal currentValue = getPortfolioCurrentValue(portfolioId);
+                return new PortfolioCurrentValueUpdate(currentValue, currentValue, BigDecimal.ZERO);
             }
 
             String stockCurrentValueKey = portfolioStockCurrentValueKey(portfolioId, changedStockId);
             BigDecimal oldStockCurrentValue = getDecimal(stockCurrentValueKey);
             BigDecimal newStockCurrentValue = BigDecimal.valueOf(newPrice).multiply(quantity);
             BigDecimal delta = newStockCurrentValue.subtract(oldStockCurrentValue);
-            BigDecimal nextPortfolioCurrentValue = getPortfolioCurrentValue(portfolioId).add(delta);
+            BigDecimal previousPortfolioCurrentValue = getPortfolioCurrentValue(portfolioId);
+            BigDecimal nextPortfolioCurrentValue = previousPortfolioCurrentValue.add(delta);
 
             setHashDecimal(portfolioHashKey(portfolioId), PRECISE_CURRENT_VALUE_FIELD, nextPortfolioCurrentValue);
             setDecimal(stockCurrentValueKey, newStockCurrentValue);
 
             result = ProfitWorkerMetrics.RESULT_SUCCESS;
-            return nextPortfolioCurrentValue;
+            return new PortfolioCurrentValueUpdate(previousPortfolioCurrentValue, nextPortfolioCurrentValue, delta);
         } finally {
             metrics.recordRedisDuration(ProfitWorkerMetrics.OPERATION_PORTFOLIO_CURRENT_VALUE, result, sample);
         }

@@ -52,6 +52,18 @@ public class RedisUserStateStore implements UserStateStore {
     }
 
     @Override
+    public BigDecimal findCurrentValue(String userId) {
+        return getUserCurrentValue(userId);
+    }
+
+    @Override
+    public BigDecimal addCurrentValue(String userId, BigDecimal delta) {
+        BigDecimal nextValue = getUserCurrentValue(userId).add(delta);
+        setHashDecimal(userHashKey(userId), "cvp", nextValue);
+        return nextValue;
+    }
+
+    @Override
     public Long findPortfolioCount(String userId) {
         return getHashLong(userHashKey(userId), "pc");
     }
@@ -117,6 +129,19 @@ public class RedisUserStateStore implements UserStateStore {
         return BigDecimal.valueOf(getHashLong(key, "cv"));
     }
 
+    private BigDecimal getUserCurrentValue(String userId) {
+        String key = userHashKey(userId);
+        Object preciseValue = hashGet(key, "cvp");
+        if (preciseValue != null) {
+            return new BigDecimal(preciseValue.toString());
+        }
+        return BigDecimal.valueOf(getHashLong(key, "cv"));
+    }
+
+    private void setHashDecimal(String key, String field, BigDecimal value) {
+        hashPut(key, field, value.toPlainString());
+    }
+
     private Object hashGet(String key, String field) {
         Timer.Sample sample = metrics.startSample();
         String result = ProfitWorkerMetrics.RESULT_FAILURE;
@@ -138,6 +163,17 @@ public class RedisUserStateStore implements UserStateStore {
             return value;
         } finally {
             metrics.recordRedisCommandDuration("hash_increment", result, sample);
+        }
+    }
+
+    private void hashPut(String key, String field, String value) {
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
+        try {
+            redisTemplate.opsForHash().put(key, field, value);
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
+        } finally {
+            metrics.recordRedisCommandDuration("hash_put", result, sample);
         }
     }
 
