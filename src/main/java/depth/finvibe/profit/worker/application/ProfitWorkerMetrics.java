@@ -24,6 +24,8 @@ public class ProfitWorkerMetrics {
     public static final String REDIS_COMMAND_DURATION = "profit.worker.redis.command.duration";
     public static final String AFFECTED_PORTFOLIOS = "profit.worker.affected.portfolios";
     public static final String AFFECTED_USERS = "profit.worker.affected.users";
+    public static final String BATCH_SIZE = "profit.worker.batch.size";
+    public static final String BATCH_DEDUPLICATED_SIZE = "profit.worker.batch.deduplicated.size";
     public static final String EVENT_AGE = "profit.worker.event.age";
     public static final String LAST_LISTENER_DURATION = "profit.worker.listener.last.duration";
     public static final String LAST_SERVICE_DURATION = "profit.worker.service.last.duration";
@@ -138,6 +140,19 @@ public class ProfitWorkerMetrics {
                 .tag(TAG_OPERATION, operation)
                 .register(meterRegistry)
                 .record(count));
+    }
+
+    public void recordBatchSize(String eventType, long rawSize, long deduplicatedSize) {
+        safeRecord(() -> {
+            DistributionSummary.builder(BATCH_SIZE)
+                    .tag(TAG_EVENT_TYPE, eventType)
+                    .register(meterRegistry)
+                    .record(rawSize);
+            DistributionSummary.builder(BATCH_DEDUPLICATED_SIZE)
+                    .tag(TAG_EVENT_TYPE, eventType)
+                    .register(meterRegistry)
+                    .record(deduplicatedSize);
+        });
     }
 
     public void recordEventAge(String eventType, Duration duration) {

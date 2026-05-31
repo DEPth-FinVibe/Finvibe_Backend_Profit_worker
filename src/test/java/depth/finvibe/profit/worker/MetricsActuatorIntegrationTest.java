@@ -33,13 +33,13 @@ class MetricsActuatorIntegrationTest {
 
     @Test
     void exposesProfitWorkerMetricsOnPrometheusEndpoint() throws IOException, InterruptedException {
-        stockPriceEventConsumer.consumeStockPriceUpdatedEvent("""
+        stockPriceEventConsumer.consumeStockPriceUpdatedEvents(java.util.List.of("""
                 {
                   "stockId": 123,
                   "price": 72000,
                   "updatedAt": "2026-05-13T13:00:00"
                 }
-                """);
+                """));
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + "/actuator/prometheus"))

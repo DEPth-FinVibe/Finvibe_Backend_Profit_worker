@@ -53,14 +53,25 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
 
     @Override
     public void updateProfitByStockPriceChange(ProfitCalculationDto.ProfitCalculationRequest request) {
+        updateProfitsByStockPriceChanges(List.of(request));
+    }
+
+    @Override
+    public void updateProfitsByStockPriceChanges(List<ProfitCalculationDto.ProfitCalculationRequest> requests) {
         Timer.Sample sample = metrics.startSample();
         String result = ProfitWorkerMetrics.RESULT_FAILURE;
-        Long stockId = Objects.requireNonNull(request.getStockId(), "stockId must not be null");
-        Long newPrice = Objects.requireNonNull(request.getNewPrice(), "newPrice must not be null");
 
         try {
+            // Phase 1: 역인덱스 조회 — 각 이벤트별 영향받는 포트폴리오 수집
             Timer.Sample reverseIndexSample = metrics.startSample();
-            List<Long> portfolioIds = portfolioStateStore.findPortfolioIdsByStockId(stockId);
+            List<PortfolioRecalculationTask> tasks = requests.stream()
+                    .flatMap(request -> {
+                        Long stockId = Objects.requireNonNull(request.getStockId());
+                        Long newPrice = Objects.requireNonNull(request.getNewPrice());
+                        return portfolioStateStore.findPortfolioIdsByStockId(stockId).stream()
+                                .map(portfolioId -> new PortfolioRecalculationTask(portfolioId, stockId, newPrice));
+                    })
+                    .toList();
             metrics.recordPhaseDuration(
                     ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION,
                     ProfitWorkerMetrics.PHASE_REVERSE_INDEX_LOOKUP,
@@ -68,8 +79,9 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
                     reverseIndexSample
             );
 
+            // Phase 2: 포트폴리오 재계산 — 모든 이벤트의 작업을 한 번에 병렬 처리
             Timer.Sample portfolioFanoutSample = metrics.startSample();
-            Map<String, BigDecimal> userDeltaByUserId = recalculatePortfolios(portfolioIds, stockId, newPrice);
+            Map<String, BigDecimal> userDeltaByUserId = recalculatePortfolios(tasks);
             metrics.recordPhaseDuration(
                     ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION,
                     ProfitWorkerMetrics.PHASE_PORTFOLIO_FANOUT,
@@ -77,6 +89,7 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
                     portfolioFanoutSample
             );
 
+            // Phase 3: 유저 재계산 — 합산된 delta로 한 번에 병렬 처리
             Timer.Sample userFanoutSample = metrics.startSample();
             recalculateUsers(userDeltaByUserId);
             metrics.recordPhaseDuration(
@@ -86,7 +99,7 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
                     userFanoutSample
             );
 
-            metrics.recordAffectedPortfolios(ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION, portfolioIds.size());
+            metrics.recordAffectedPortfolios(ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION, tasks.size());
             metrics.recordAffectedUsers(ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION, userDeltaByUserId.size());
             result = ProfitWorkerMetrics.RESULT_SUCCESS;
         } finally {
@@ -94,13 +107,15 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
         }
     }
 
-    private Map<String, BigDecimal> recalculatePortfolios(List<Long> portfolioIds, Long stockId, Long newPrice) {
+    private Map<String, BigDecimal> recalculatePortfolios(List<PortfolioRecalculationTask> tasks) {
         Map<String, BigDecimal> userDeltaByUserId = new ConcurrentHashMap<>();
-        portfolioIds.stream()
-                .map(portfolioId -> CompletableFuture.supplyAsync(
-                        () -> recalculatePortfolio(portfolioId, stockId, newPrice),
+        List<CompletableFuture<UserDeltaUpdate>> futures = tasks.stream()
+                .map(task -> CompletableFuture.supplyAsync(
+                        () -> recalculatePortfolio(task.portfolioId(), task.stockId(), task.newPrice()),
                         recalculationExecutor
                 ))
+                .toList();
+        futures.stream()
                 .map(this::joinFuture)
                 .filter(Objects::nonNull)
                 .forEach(update -> userDeltaByUserId.merge(update.userId(), update.delta(), BigDecimal::add));
@@ -129,12 +144,13 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
     }
 
     private void recalculateUsers(Map<String, BigDecimal> userDeltaByUserId) {
-        userDeltaByUserId.entrySet().stream()
+        List<CompletableFuture<Void>> futures = userDeltaByUserId.entrySet().stream()
                 .map(entry -> CompletableFuture.runAsync(
                         () -> recalculateUser(entry.getKey(), entry.getValue()),
                         recalculationExecutor
                 ))
-                .forEach(this::joinFuture);
+                .toList();
+        futures.forEach(this::joinFuture);
     }
 
     private void recalculateUser(String userId, BigDecimal delta) {
@@ -175,6 +191,9 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
 
     private Long roundToLong(BigDecimal value) {
         return ValuationDecimalSupport.toWholeNumber(value);
+    }
+
+    private record PortfolioRecalculationTask(Long portfolioId, Long stockId, Long newPrice) {
     }
 
     private record UserDeltaUpdate(String userId, BigDecimal delta) {

@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 
 @Component
 @RequiredArgsConstructor
@@ -25,54 +26,58 @@ public class CacheUpdateEventConsumer {
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     @KafkaListener(topics = "${app.kafka.topics.portfolio-trade:trade.trade-executed.v1}")
-    public void consumePortfolioTradeEvent(String payload) {
-        Timer.Sample sample = metrics.startSample();
-        String result = ProfitWorkerMetrics.RESULT_FAILURE;
+    public void consumePortfolioTradeEvents(List<String> payloads) {
+        for (String payload : payloads) {
+            Timer.Sample sample = metrics.startSample();
+            String result = ProfitWorkerMetrics.RESULT_FAILURE;
 
-        try {
-            PortfolioTradeEvent event = read(payload, PortfolioTradeEvent.class);
+            try {
+                PortfolioTradeEvent event = read(payload, PortfolioTradeEvent.class);
 
-            cacheUpdateUseCase.updatePortfolioCache(CacheUpdateDto.PortfolioCacheUpdateRequest.builder()
-                    .portfolioId(event.getPortfolioId())
-                    .stockId(event.getStockId())
-                    .type(toTradeType(event.getType()))
-                    .price(event.getPrice())
-                    .quantity(toQuantity(event))
-                    .build());
-            result = ProfitWorkerMetrics.RESULT_SUCCESS;
-        } finally {
-            metrics.recordConsumed(ProfitWorkerMetrics.EVENT_TYPE_PORTFOLIO_TRADE, result);
-            metrics.recordListenerDuration(ProfitWorkerMetrics.EVENT_TYPE_PORTFOLIO_TRADE, result, sample);
+                cacheUpdateUseCase.updatePortfolioCache(CacheUpdateDto.PortfolioCacheUpdateRequest.builder()
+                        .portfolioId(event.getPortfolioId())
+                        .stockId(event.getStockId())
+                        .type(toTradeType(event.getType()))
+                        .price(event.getPrice())
+                        .quantity(toQuantity(event))
+                        .build());
+                result = ProfitWorkerMetrics.RESULT_SUCCESS;
+            } finally {
+                metrics.recordConsumed(ProfitWorkerMetrics.EVENT_TYPE_PORTFOLIO_TRADE, result);
+                metrics.recordListenerDuration(ProfitWorkerMetrics.EVENT_TYPE_PORTFOLIO_TRADE, result, sample);
+            }
         }
     }
 
     @KafkaListener(topics = "${app.kafka.topics.portfolio-user:asset.portfolio-group-changed.v1}")
-    public void consumePortfolioUserEvent(String payload) {
-        Timer.Sample sample = metrics.startSample();
-        String result = ProfitWorkerMetrics.RESULT_FAILURE;
+    public void consumePortfolioUserEvents(List<String> payloads) {
+        for (String payload : payloads) {
+            Timer.Sample sample = metrics.startSample();
+            String result = ProfitWorkerMetrics.RESULT_FAILURE;
 
-        try {
-            PortfolioUserEvent event = read(payload, PortfolioUserEvent.class);
-            Instant occurredAt = event.getOccurredAt();
-            if (occurredAt != null) {
-                metrics.recordEventAge(ProfitWorkerMetrics.EVENT_TYPE_PORTFOLIO_USER, Duration.between(occurredAt, Instant.now()));
+            try {
+                PortfolioUserEvent event = read(payload, PortfolioUserEvent.class);
+                Instant occurredAt = event.getOccurredAt();
+                if (occurredAt != null) {
+                    metrics.recordEventAge(ProfitWorkerMetrics.EVENT_TYPE_PORTFOLIO_USER, Duration.between(occurredAt, Instant.now()));
+                }
+
+                if (event.getEventType() == PortfolioUserEvent.EventType.UPDATED) {
+                    result = ProfitWorkerMetrics.RESULT_SKIPPED;
+                    metrics.recordSkipped(ProfitWorkerMetrics.EVENT_TYPE_PORTFOLIO_USER, ProfitWorkerMetrics.REASON_UPDATED_EVENT_IGNORED);
+                    continue;
+                }
+
+                cacheUpdateUseCase.updateUserCache(CacheUpdateDto.UserCacheUpdateRequest.builder()
+                        .userId(event.getUserId())
+                        .portfolioId(event.getPortfolioId())
+                        .type(toChangeType(event.getEventType()))
+                        .build());
+                result = ProfitWorkerMetrics.RESULT_SUCCESS;
+            } finally {
+                metrics.recordConsumed(ProfitWorkerMetrics.EVENT_TYPE_PORTFOLIO_USER, result);
+                metrics.recordListenerDuration(ProfitWorkerMetrics.EVENT_TYPE_PORTFOLIO_USER, result, sample);
             }
-
-            if (event.getEventType() == PortfolioUserEvent.EventType.UPDATED) {
-                result = ProfitWorkerMetrics.RESULT_SKIPPED;
-                metrics.recordSkipped(ProfitWorkerMetrics.EVENT_TYPE_PORTFOLIO_USER, ProfitWorkerMetrics.REASON_UPDATED_EVENT_IGNORED);
-                return;
-            }
-
-            cacheUpdateUseCase.updateUserCache(CacheUpdateDto.UserCacheUpdateRequest.builder()
-                    .userId(event.getUserId())
-                    .portfolioId(event.getPortfolioId())
-                    .type(toChangeType(event.getEventType()))
-                    .build());
-            result = ProfitWorkerMetrics.RESULT_SUCCESS;
-        } finally {
-            metrics.recordConsumed(ProfitWorkerMetrics.EVENT_TYPE_PORTFOLIO_USER, result);
-            metrics.recordListenerDuration(ProfitWorkerMetrics.EVENT_TYPE_PORTFOLIO_USER, result, sample);
         }
     }
 

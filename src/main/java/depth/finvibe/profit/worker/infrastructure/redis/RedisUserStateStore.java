@@ -58,9 +58,8 @@ public class RedisUserStateStore implements UserStateStore {
 
     @Override
     public BigDecimal addCurrentValue(String userId, BigDecimal delta) {
-        BigDecimal nextValue = getUserCurrentValue(userId).add(delta);
-        setHashDecimal(userHashKey(userId), "cvp", nextValue);
-        return nextValue;
+        Double nextValue = hashIncrementFloat(userHashKey(userId), "cvp", delta.doubleValue());
+        return BigDecimal.valueOf(nextValue);
     }
 
     @Override
@@ -163,6 +162,18 @@ public class RedisUserStateStore implements UserStateStore {
             return value;
         } finally {
             metrics.recordRedisCommandDuration("hash_increment", result, sample);
+        }
+    }
+
+    private Double hashIncrementFloat(String key, String field, double delta) {
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
+        try {
+            Double value = redisTemplate.opsForHash().increment(key, field, delta);
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
+            return value;
+        } finally {
+            metrics.recordRedisCommandDuration("hash_increment_float", result, sample);
         }
     }
 

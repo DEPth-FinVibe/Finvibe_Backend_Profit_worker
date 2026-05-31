@@ -65,10 +65,10 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
             BigDecimal oldStockCurrentValue = getDecimal(stockCurrentValueKey);
             BigDecimal newStockCurrentValue = BigDecimal.valueOf(newPrice).multiply(quantity);
             BigDecimal delta = newStockCurrentValue.subtract(oldStockCurrentValue);
-            BigDecimal previousPortfolioCurrentValue = getPortfolioCurrentValue(portfolioId);
-            BigDecimal nextPortfolioCurrentValue = previousPortfolioCurrentValue.add(delta);
 
-            setHashDecimal(portfolioHashKey(portfolioId), PRECISE_CURRENT_VALUE_FIELD, nextPortfolioCurrentValue);
+            BigDecimal nextPortfolioCurrentValue = BigDecimal.valueOf(
+                    hashIncrementFloat(portfolioHashKey(portfolioId), PRECISE_CURRENT_VALUE_FIELD, delta.doubleValue()));
+            BigDecimal previousPortfolioCurrentValue = nextPortfolioCurrentValue.subtract(delta);
             setDecimal(stockCurrentValueKey, newStockCurrentValue);
 
             result = ProfitWorkerMetrics.RESULT_SUCCESS;
@@ -123,12 +123,12 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
 
     @Override
     public void addCurrentValue(Long portfolioId, BigDecimal amount) {
-        setHashDecimal(portfolioHashKey(portfolioId), PRECISE_CURRENT_VALUE_FIELD, getPortfolioCurrentValue(portfolioId).add(amount));
+        hashIncrementFloat(portfolioHashKey(portfolioId), PRECISE_CURRENT_VALUE_FIELD, amount.doubleValue());
     }
 
     @Override
     public void subtractCurrentValue(Long portfolioId, BigDecimal amount) {
-        setHashDecimal(portfolioHashKey(portfolioId), PRECISE_CURRENT_VALUE_FIELD, getPortfolioCurrentValue(portfolioId).subtract(amount));
+        hashIncrementFloat(portfolioHashKey(portfolioId), PRECISE_CURRENT_VALUE_FIELD, -amount.doubleValue());
     }
 
     @Override
@@ -254,6 +254,18 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
             return value;
         } finally {
             metrics.recordRedisCommandDuration("hash_increment", result, sample);
+        }
+    }
+
+    private Double hashIncrementFloat(String key, String field, double delta) {
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
+        try {
+            Double value = redisTemplate.opsForHash().increment(key, field, delta);
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
+            return value;
+        } finally {
+            metrics.recordRedisCommandDuration("hash_increment_float", result, sample);
         }
     }
 

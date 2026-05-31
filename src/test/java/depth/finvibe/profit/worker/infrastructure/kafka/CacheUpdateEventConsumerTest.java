@@ -24,7 +24,7 @@ class CacheUpdateEventConsumerTest {
         SimpleMeterRegistry registry = fixture.registry();
         CacheUpdateEventConsumer consumer = new CacheUpdateEventConsumer(cacheUpdateUseCase, fixture.metrics());
 
-        consumer.consumePortfolioTradeEvent("""
+        consumer.consumePortfolioTradeEvents(java.util.List.of("""
                 {
                   "tradeId": 1,
                   "userId": "7a22103f-1d1c-4ab4-9c47-4040c3a46964",
@@ -36,7 +36,7 @@ class CacheUpdateEventConsumerTest {
                   "currency": "KRW",
                   "portfolioId": 456
                 }
-                """);
+                """));
 
         ArgumentCaptor<CacheUpdateDto.PortfolioCacheUpdateRequest> captor =
                 ArgumentCaptor.forClass(CacheUpdateDto.PortfolioCacheUpdateRequest.class);
@@ -61,7 +61,7 @@ class CacheUpdateEventConsumerTest {
         SimpleMeterRegistry registry = fixture.registry();
         CacheUpdateEventConsumer consumer = new CacheUpdateEventConsumer(cacheUpdateUseCase, fixture.metrics());
 
-        consumer.consumePortfolioTradeEvent("""
+        consumer.consumePortfolioTradeEvents(java.util.List.of("""
                 {
                   "type": "SELL",
                   "amount": 10.5,
@@ -69,7 +69,7 @@ class CacheUpdateEventConsumerTest {
                   "stockId": 123,
                   "portfolioId": 456
                 }
-                """);
+                """));
 
         ArgumentCaptor<CacheUpdateDto.PortfolioCacheUpdateRequest> captor =
                 ArgumentCaptor.forClass(CacheUpdateDto.PortfolioCacheUpdateRequest.class);
@@ -88,14 +88,14 @@ class CacheUpdateEventConsumerTest {
         SimpleMeterRegistry registry = fixture.registry();
         CacheUpdateEventConsumer consumer = new CacheUpdateEventConsumer(cacheUpdateUseCase, fixture.metrics());
 
-        consumer.consumePortfolioUserEvent("""
+        consumer.consumePortfolioUserEvents(java.util.List.of("""
                 {
                   "eventType": "CREATED",
                   "userId": "7a22103f-1d1c-4ab4-9c47-4040c3a46964",
                   "portfolioId": 456,
                   "occurredAt": "2026-05-13T13:00:00Z"
                 }
-                """);
+                """));
 
         ArgumentCaptor<CacheUpdateDto.UserCacheUpdateRequest> captor =
                 ArgumentCaptor.forClass(CacheUpdateDto.UserCacheUpdateRequest.class);
@@ -117,14 +117,14 @@ class CacheUpdateEventConsumerTest {
         SimpleMeterRegistry registry = fixture.registry();
         CacheUpdateEventConsumer consumer = new CacheUpdateEventConsumer(cacheUpdateUseCase, fixture.metrics());
 
-        consumer.consumePortfolioUserEvent("""
+        consumer.consumePortfolioUserEvents(java.util.List.of("""
                 {
                   "eventType": "UPDATED",
                   "userId": "7a22103f-1d1c-4ab4-9c47-4040c3a46964",
                   "portfolioId": 456,
                   "occurredAt": "2026-05-13T13:00:00Z"
                 }
-                """);
+                """));
 
         verifyNoInteractions(cacheUpdateUseCase);
         assertThat(registry.find(ProfitWorkerMetrics.EVENTS_CONSUMED)
@@ -144,14 +144,14 @@ class CacheUpdateEventConsumerTest {
         SimpleMeterRegistry registry = fixture.registry();
         CacheUpdateEventConsumer consumer = new CacheUpdateEventConsumer(cacheUpdateUseCase, fixture.metrics());
 
-        consumer.consumePortfolioUserEvent("""
+        consumer.consumePortfolioUserEvents(java.util.List.of("""
                 {
                   "eventType": "CREATED",
                   "userId": "7a22103f-1d1c-4ab4-9c47-4040c3a46964",
                   "portfolioId": 456,
                   "occurredAt": "3026-05-13T13:00:00Z"
                 }
-                """);
+                """));
 
         assertThat(registry.find(ProfitWorkerMetrics.EVENT_AGE)
                 .tags(ProfitWorkerMetrics.TAG_EVENT_TYPE, ProfitWorkerMetrics.EVENT_TYPE_PORTFOLIO_USER)

@@ -14,6 +14,9 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 @Component
 @RequiredArgsConstructor
@@ -24,23 +27,37 @@ public class StockPriceEventConsumer {
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     @KafkaListener(topics = "${app.kafka.topics.stock-price-updated:market.stock-price-updated.v1}")
-    public void consumeStockPriceUpdatedEvent(String payload) {
+    public void consumeStockPriceUpdatedEvents(List<String> payloads) {
         Timer.Sample sample = metrics.startSample();
         String result = ProfitWorkerMetrics.RESULT_FAILURE;
 
         try {
-            StockPriceUpdatedEvent event = read(payload, StockPriceUpdatedEvent.class);
-            Instant updatedAt = event.getUpdatedAt().atZone(ZoneId.systemDefault()).toInstant();
-            metrics.recordEventAge(ProfitWorkerMetrics.EVENT_TYPE_STOCK_PRICE_UPDATED, Duration.between(updatedAt, Instant.now()));
+            // stockId 기준 중복 제거 — 같은 종목은 배치 내 최신 가격만 처리
+            Map<Long, StockPriceUpdatedEvent> latestByStockId = new LinkedHashMap<>();
+            for (String payload : payloads) {
+                StockPriceUpdatedEvent event = read(payload, StockPriceUpdatedEvent.class);
+                latestByStockId.put(event.getStockId(), event);
+            }
 
-            profitCalculationUseCase.updateProfitByStockPriceChange(ProfitCalculationDto.ProfitCalculationRequest.builder()
-                    .stockId(event.getStockId())
-                    .newPrice(toPrice(event))
-                    .timestamp(updatedAt)
-                    .build());
+            metrics.recordBatchSize(ProfitWorkerMetrics.EVENT_TYPE_STOCK_PRICE_UPDATED, payloads.size(), latestByStockId.size());
+
+            List<ProfitCalculationDto.ProfitCalculationRequest> requests = latestByStockId.values().stream()
+                    .map(event -> {
+                        Instant updatedAt = event.getUpdatedAt().atZone(ZoneId.systemDefault()).toInstant();
+                        metrics.recordEventAge(ProfitWorkerMetrics.EVENT_TYPE_STOCK_PRICE_UPDATED, Duration.between(updatedAt, Instant.now()));
+                        return ProfitCalculationDto.ProfitCalculationRequest.builder()
+                                .stockId(event.getStockId())
+                                .newPrice(toPrice(event))
+                                .timestamp(updatedAt)
+                                .build();
+                    })
+                    .toList();
+
+            profitCalculationUseCase.updateProfitsByStockPriceChanges(requests);
+
+            requests.forEach(r -> metrics.recordConsumed(ProfitWorkerMetrics.EVENT_TYPE_STOCK_PRICE_UPDATED, ProfitWorkerMetrics.RESULT_SUCCESS));
             result = ProfitWorkerMetrics.RESULT_SUCCESS;
         } finally {
-            metrics.recordConsumed(ProfitWorkerMetrics.EVENT_TYPE_STOCK_PRICE_UPDATED, result);
             metrics.recordListenerDuration(ProfitWorkerMetrics.EVENT_TYPE_STOCK_PRICE_UPDATED, result, sample);
         }
     }
