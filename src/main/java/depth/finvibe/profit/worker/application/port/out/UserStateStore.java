@@ -1,6 +1,8 @@
 package depth.finvibe.profit.worker.application.port.out;
 
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
 
 /**
  * 유저 단위 수익률 계산과 캐시 갱신에 필요한 상태 저장소 포트.
@@ -100,4 +102,23 @@ public interface UserStateStore {
      * @param userId 유저 ID
      */
     void decreasePortfolioCount(String userId);
+
+    /**
+     * 여러 유저의 메타데이터(구매액, 포트폴리오수)를 일괄 조회한다.
+     *
+     * @param userIds 유저 ID 목록
+     * @return userId → UserMetadata 매핑
+     */
+    Map<String, UserMetadata> bulkFetchUserMetadata(List<String> userIds);
+
+    /**
+     * 여러 유저의 현재 평가액에 delta를 원자적으로 누적 반영한다 (pipeline).
+     *
+     * @param deltasByUserId userId → delta 매핑
+     * @return userId → 반영 후 평가액 매핑
+     */
+    Map<String, BigDecimal> bulkIncrementCurrentValues(Map<String, BigDecimal> deltasByUserId);
+
+    record UserMetadata(Long purchasedValue, Long portfolioCount) {
+    }
 }

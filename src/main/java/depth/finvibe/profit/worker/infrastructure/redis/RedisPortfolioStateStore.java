@@ -9,7 +9,10 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Component
@@ -156,6 +159,131 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
     @Override
     public void decreaseAssetCount(Long portfolioId) {
         incrementHash(portfolioHashKey(portfolioId), "ac", -1L);
+    }
+
+    @Override
+    public Map<Long, PortfolioMetadata> bulkFetchPortfolioMetadata(List<Long> portfolioIds) {
+        Timer.Sample sample = metrics.startSample();
+        try {
+            List<Object> results = redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
+                var hashCommands = connection.hashCommands();
+                for (Long portfolioId : portfolioIds) {
+                    byte[] key = redisTemplate.getStringSerializer().serialize(portfolioHashKey(portfolioId));
+                    hashCommands.hMGet(key,
+                            redisTemplate.getStringSerializer().serialize("pv"),
+                            redisTemplate.getStringSerializer().serialize("ac"),
+                            redisTemplate.getStringSerializer().serialize("u"),
+                            redisTemplate.getStringSerializer().serialize("cvp"),
+                            redisTemplate.getStringSerializer().serialize("cv"));
+                }
+                return null;
+            });
+
+            Map<Long, PortfolioMetadata> metadataMap = new HashMap<>();
+            for (int i = 0; i < portfolioIds.size(); i++) {
+                @SuppressWarnings("unchecked")
+                List<Object> fields = (List<Object>) results.get(i);
+                Long pv = parseNullableLong(fields.get(0));
+                Long ac = parseNullableLong(fields.get(1));
+                String userId = fields.get(2) == null ? null : fields.get(2).toString();
+                BigDecimal cv;
+                if (fields.get(3) != null) {
+                    cv = new BigDecimal(fields.get(3).toString());
+                } else if (fields.get(4) != null) {
+                    cv = BigDecimal.valueOf(Long.parseLong(fields.get(4).toString()));
+                } else {
+                    cv = BigDecimal.ZERO;
+                }
+                metadataMap.put(portfolioIds.get(i), new PortfolioMetadata(pv, ac, userId, cv));
+            }
+            return metadataMap;
+        } finally {
+            metrics.recordRedisCommandDuration("pipeline_hmget_portfolio", ProfitWorkerMetrics.RESULT_SUCCESS, sample);
+        }
+    }
+
+    @Override
+    public Map<String, StockHolding> bulkFetchStockHoldings(List<StockHoldingKey> tasks) {
+        Timer.Sample sample = metrics.startSample();
+        try {
+            // Pipeline: GET quantity + GET current-value for each task (2 commands per task)
+            List<Object> results = redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
+                var stringCommands = connection.stringCommands();
+                for (StockHoldingKey task : tasks) {
+                    stringCommands.get(redisTemplate.getStringSerializer().serialize(
+                            portfolioStockQuantityKey(task.portfolioId(), task.stockId())));
+                    stringCommands.get(redisTemplate.getStringSerializer().serialize(
+                            portfolioStockCurrentValueKey(task.portfolioId(), task.stockId())));
+                }
+                return null;
+            });
+
+            Map<String, StockHolding> holdings = new HashMap<>();
+            for (int i = 0; i < tasks.size(); i++) {
+                Object quantityRaw = results.get(i * 2);
+                Object currentValueRaw = results.get(i * 2 + 1);
+                BigDecimal quantity = quantityRaw == null ? BigDecimal.ZERO : new BigDecimal(quantityRaw.toString());
+                BigDecimal currentValue = currentValueRaw == null ? BigDecimal.ZERO : new BigDecimal(currentValueRaw.toString());
+                holdings.put(tasks.get(i).toKey(), new StockHolding(quantity, currentValue));
+            }
+            return holdings;
+        } finally {
+            metrics.recordRedisCommandDuration("pipeline_get_stock_holdings", ProfitWorkerMetrics.RESULT_SUCCESS, sample);
+        }
+    }
+
+    @Override
+    public Map<Long, BigDecimal> bulkIncrementCurrentValues(Map<Long, BigDecimal> deltasByPortfolioId) {
+        Timer.Sample sample = metrics.startSample();
+        try {
+            List<Long> portfolioIds = new ArrayList<>(deltasByPortfolioId.keySet());
+            List<Object> results = redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
+                var hashCommands = connection.hashCommands();
+                byte[] fieldBytes = redisTemplate.getStringSerializer().serialize(PRECISE_CURRENT_VALUE_FIELD);
+                for (Long portfolioId : portfolioIds) {
+                    byte[] key = redisTemplate.getStringSerializer().serialize(portfolioHashKey(portfolioId));
+                    BigDecimal delta = deltasByPortfolioId.get(portfolioId);
+                    hashCommands.hIncrBy(key, fieldBytes, delta.doubleValue());
+                }
+                return null;
+            });
+
+            Map<Long, BigDecimal> resultMap = new HashMap<>();
+            for (int i = 0; i < portfolioIds.size(); i++) {
+                Object raw = results.get(i);
+                BigDecimal newValue = raw == null ? BigDecimal.ZERO : BigDecimal.valueOf(((Number) raw).doubleValue());
+                resultMap.put(portfolioIds.get(i), newValue);
+            }
+            return resultMap;
+        } finally {
+            metrics.recordRedisCommandDuration("pipeline_hincrbyfloat_portfolio_cv", ProfitWorkerMetrics.RESULT_SUCCESS, sample);
+        }
+    }
+
+    @Override
+    public String stockCurrentValueKey(Long portfolioId, Long stockId) {
+        return portfolioStockCurrentValueKey(portfolioId, stockId);
+    }
+
+    @Override
+    public void bulkSetStockCurrentValues(Map<String, BigDecimal> updates) {
+        Timer.Sample sample = metrics.startSample();
+        try {
+            redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
+                var stringCommands = connection.stringCommands();
+                updates.forEach((key, value) -> stringCommands.set(
+                        redisTemplate.getStringSerializer().serialize(key),
+                        redisTemplate.getStringSerializer().serialize(toPlainString(value))));
+                return null;
+            });
+        } finally {
+            metrics.recordRedisCommandDuration("pipeline_set_stock_cvs", ProfitWorkerMetrics.RESULT_SUCCESS, sample);
+        }
+    }
+
+    private Long parseNullableLong(Object value) {
+        if (value == null) return 0L;
+        return Long.valueOf(value.toString());
     }
 
     @Override

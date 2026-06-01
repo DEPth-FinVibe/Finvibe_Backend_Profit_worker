@@ -354,6 +354,17 @@ class CacheUpdateServiceTest {
             assetCounts.remove(portfolioId);
         }
 
+        @Override
+        public Map<Long, PortfolioMetadata> bulkFetchPortfolioMetadata(List<Long> portfolioIds) { throw new UnsupportedOperationException(); }
+        @Override
+        public Map<String, StockHolding> bulkFetchStockHoldings(List<StockHoldingKey> tasks) { throw new UnsupportedOperationException(); }
+        @Override
+        public void bulkSetStockCurrentValues(Map<String, BigDecimal> updates) { throw new UnsupportedOperationException(); }
+        @Override
+        public Map<Long, BigDecimal> bulkIncrementCurrentValues(Map<Long, BigDecimal> deltasByPortfolioId) { throw new UnsupportedOperationException(); }
+        @Override
+        public String stockCurrentValueKey(Long portfolioId, Long stockId) { return portfolioId + ":" + stockId; }
+
         private String stockQuantityKey(Long portfolioId, Long stockId) {
             return portfolioId + ":" + stockId;
         }
@@ -445,6 +456,11 @@ class CacheUpdateServiceTest {
         public void decreasePortfolioCount(String userId) {
             portfolioCounts.merge(userId, -1L, Long::sum);
         }
+
+        @Override
+        public Map<String, UserMetadata> bulkFetchUserMetadata(List<String> userIds) { throw new UnsupportedOperationException(); }
+        @Override
+        public Map<String, BigDecimal> bulkIncrementCurrentValues(Map<String, BigDecimal> deltasByUserId) { throw new UnsupportedOperationException(); }
     }
 
     private static class FakeValuationRepository implements ValuationRepository {
@@ -470,6 +486,15 @@ class CacheUpdateServiceTest {
         public void saveUserValuation(UserValuation valuation) {
             userValuations.put(valuation.getUserId(), valuation);
             dirtyUserIds.add(valuation.getUserId());
+        }
+
+        @Override
+        public void bulkSavePortfolioValuations(List<PortfolioValuation> valuations) {
+            for (PortfolioValuation v : valuations) savePortfolioValuation(v);
+        }
+        @Override
+        public void bulkSaveUserValuations(List<UserValuation> valuations) {
+            for (UserValuation v : valuations) saveUserValuation(v);
         }
     }
 }

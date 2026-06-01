@@ -11,10 +11,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -27,15 +24,29 @@ class ProfitCalculateServiceTest {
         SimpleMeterRegistry registry = fixture.registry();
         FakeValuationRepository valuationRepository = new FakeValuationRepository();
         FakePortfolioStateStore portfolioStateStore = new FakePortfolioStateStore();
-        FakeUserStateStore userStateStore = new FakeUserStateStore(valuationRepository);
+        FakeUserStateStore userStateStore = new FakeUserStateStore();
         ProfitCalculateService service = new ProfitCalculateService(
                 portfolioStateStore,
                 userStateStore,
                 valuationRepository,
-                fixture.metrics(),
-                Runnable::run
+                fixture.metrics()
         );
 
+        // Portfolio 1: holds 10 shares of stock 10, oldStockCV=1000, portfolioCV=1000
+        // Portfolio 2: holds 2 shares of stock 10, oldStockCV=600, portfolioCV=1000
+        portfolioStateStore.portfolioIdsByStockId.put(10L, List.of(1L, 2L));
+        portfolioStateStore.portfolioMetadata.put(1L, new PortfolioStateStore.PortfolioMetadata(1_000L, 2L, "100", new BigDecimal("1000")));
+        portfolioStateStore.portfolioMetadata.put(2L, new PortfolioStateStore.PortfolioMetadata(1_000L, 1L, "100", new BigDecimal("1000")));
+        portfolioStateStore.stockHoldings.put("1:10", new PortfolioStateStore.StockHolding(BigDecimal.TEN, new BigDecimal("1000")));
+        portfolioStateStore.stockHoldings.put("2:10", new PortfolioStateStore.StockHolding(new BigDecimal("2"), new BigDecimal("600")));
+
+        userStateStore.userMetadata.put("100", new UserStateStore.UserMetadata(2_000L, 2L));
+        userStateStore.currentValues.put("100", new BigDecimal("2000"));
+
+        // Stock 10 price changes to 150
+        // Portfolio 1: newStockCV=1500, delta=+500, newCV=1500
+        // Portfolio 2: newStockCV=300, delta=-300, newCV=700
+        // User "100": delta=+200, newCV=2200
         service.updateProfitByStockPriceChange(ProfitCalculationDto.ProfitCalculationRequest.builder()
                 .stockId(10L)
                 .newPrice(150L)
@@ -73,18 +84,22 @@ class ProfitCalculateServiceTest {
         TestMetricsFactory.MetricsFixture fixture = TestMetricsFactory.create();
         FakeValuationRepository valuationRepository = new FakeValuationRepository();
         FakePortfolioStateStore portfolioStateStore = new FakePortfolioStateStore();
-        portfolioStateStore.currentValues.put(1L, new BigDecimal("500.5"));
-        portfolioStateStore.portfolioIdsByStockId.put(10L, List.of(1L));
-        FakeUserStateStore userStateStore = new FakeUserStateStore(valuationRepository);
-        userStateStore.userIdsByPortfolioId.put(1L, "100");
-        userStateStore.portfolioIdsByUserId.put("100", List.of(1L));
+        FakeUserStateStore userStateStore = new FakeUserStateStore();
         ProfitCalculateService service = new ProfitCalculateService(
                 portfolioStateStore,
                 userStateStore,
                 valuationRepository,
-                fixture.metrics(),
-                Runnable::run
+                fixture.metrics()
         );
+
+        // Portfolio 1: oldCV=400.5, stock 10 quantity=10, oldStockCV=1400
+        // After price→150: newStockCV=1500, delta=100, newCV=500.5 → rounds to 501
+        portfolioStateStore.portfolioIdsByStockId.put(10L, List.of(1L));
+        portfolioStateStore.portfolioMetadata.put(1L, new PortfolioStateStore.PortfolioMetadata(1_000L, 2L, "100", new BigDecimal("400.5")));
+        portfolioStateStore.stockHoldings.put("1:10", new PortfolioStateStore.StockHolding(BigDecimal.TEN, new BigDecimal("1400")));
+
+        userStateStore.userMetadata.put("100", new UserStateStore.UserMetadata(1_000L, 1L));
+        userStateStore.currentValues.put("100", new BigDecimal("400.5"));
 
         service.updateProfitByStockPriceChange(ProfitCalculationDto.ProfitCalculationRequest.builder()
                 .stockId(10L)
@@ -100,18 +115,20 @@ class ProfitCalculateServiceTest {
         TestMetricsFactory.MetricsFixture fixture = TestMetricsFactory.create();
         FakeValuationRepository valuationRepository = new FakeValuationRepository();
         FakePortfolioStateStore portfolioStateStore = new FakePortfolioStateStore();
-        portfolioStateStore.purchasedValues.put(1L, 0L);
-        portfolioStateStore.currentValues.put(1L, new BigDecimal("500"));
-
-        FakeUserStateStore userStateStore = new FakeUserStateStore(valuationRepository);
-        userStateStore.purchasedValues.put("100", 0L);
+        FakeUserStateStore userStateStore = new FakeUserStateStore();
         ProfitCalculateService service = new ProfitCalculateService(
                 portfolioStateStore,
                 userStateStore,
                 valuationRepository,
-                fixture.metrics(),
-                Runnable::run
+                fixture.metrics()
         );
+
+        portfolioStateStore.portfolioIdsByStockId.put(10L, List.of(1L));
+        portfolioStateStore.portfolioMetadata.put(1L, new PortfolioStateStore.PortfolioMetadata(0L, 1L, "100", new BigDecimal("500")));
+        portfolioStateStore.stockHoldings.put("1:10", new PortfolioStateStore.StockHolding(BigDecimal.TEN, new BigDecimal("1000")));
+
+        userStateStore.userMetadata.put("100", new UserStateStore.UserMetadata(0L, 1L));
+        userStateStore.currentValues.put("100", new BigDecimal("500"));
 
         service.updateProfitByStockPriceChange(ProfitCalculationDto.ProfitCalculationRequest.builder()
                 .stockId(10L)
@@ -128,41 +145,31 @@ class ProfitCalculateServiceTest {
         SimpleMeterRegistry registry = fixture.registry();
         FakeValuationRepository valuationRepository = new FakeValuationRepository();
         FakePortfolioStateStore portfolioStateStore = new FakePortfolioStateStore();
-        portfolioStateStore.portfolioIdsByStockId.put(999L, List.of());
-        FakeUserStateStore userStateStore = new FakeUserStateStore(valuationRepository);
+        FakeUserStateStore userStateStore = new FakeUserStateStore();
         ProfitCalculateService service = new ProfitCalculateService(
                 portfolioStateStore,
                 userStateStore,
                 valuationRepository,
-                fixture.metrics(),
-                Runnable::run
+                fixture.metrics()
         );
+
+        portfolioStateStore.portfolioIdsByStockId.put(999L, List.of());
 
         service.updateProfitByStockPriceChange(ProfitCalculationDto.ProfitCalculationRequest.builder()
                 .stockId(999L)
                 .newPrice(150L)
                 .build());
 
-        assertThat(registry.find(ProfitWorkerMetrics.AFFECTED_PORTFOLIOS)
-                .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION)
-                .summary().count()).isEqualTo(1);
-        assertThat(registry.find(ProfitWorkerMetrics.AFFECTED_PORTFOLIOS)
-                .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION)
-                .summary().totalAmount()).isEqualTo(0.0);
-        assertThat(registry.find(ProfitWorkerMetrics.AFFECTED_USERS)
-                .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION)
-                .summary().count()).isEqualTo(1);
-        assertThat(registry.find(ProfitWorkerMetrics.AFFECTED_USERS)
-                .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION)
-                .summary().totalAmount()).isEqualTo(0.0);
+        assertThat(valuationRepository.portfolioValuations).isEmpty();
+        assertThat(valuationRepository.userValuations).isEmpty();
     }
 
     private static class FakePortfolioStateStore implements PortfolioStateStore {
 
-        private final Map<Long, List<Long>> portfolioIdsByStockId = new HashMap<>(Map.of(10L, List.of(1L, 2L)));
-        private final Map<Long, Long> purchasedValues = new HashMap<>(Map.of(1L, 1_000L, 2L, 1_000L));
-        private final Map<Long, BigDecimal> currentValues = new HashMap<>(Map.of(1L, new BigDecimal("1500"), 2L, new BigDecimal("700")));
-        private final Map<Long, Long> assetCounts = Map.of(1L, 2L, 2L, 1L);
+        final Map<Long, List<Long>> portfolioIdsByStockId = new HashMap<>();
+        final Map<Long, PortfolioMetadata> portfolioMetadata = new HashMap<>();
+        final Map<String, StockHolding> stockHoldings = new HashMap<>();
+        final Map<Long, BigDecimal> currentValues = new HashMap<>();
 
         @Override
         public List<Long> findPortfolioIdsByStockId(Long stockId) {
@@ -171,116 +178,111 @@ class ProfitCalculateServiceTest {
 
         @Override
         public Long findPurchasedValue(Long portfolioId) {
-            return purchasedValues.get(portfolioId);
+            PortfolioMetadata meta = portfolioMetadata.get(portfolioId);
+            return meta != null ? meta.purchasedValue() : 0L;
         }
 
         @Override
         public BigDecimal findCurrentValue(Long portfolioId) {
-            return currentValues.get(portfolioId);
+            return currentValues.getOrDefault(portfolioId, BigDecimal.ZERO);
         }
 
         @Override
         public BigDecimal calculateCurrentValue(Long portfolioId, Long changedStockId, Long newPrice) {
-            return currentValues.get(portfolioId);
+            return findCurrentValue(portfolioId);
         }
 
         @Override
         public PortfolioCurrentValueUpdate recalculateCurrentValue(Long portfolioId, Long changedStockId, Long newPrice) {
-            BigDecimal currentValue = currentValues.get(portfolioId);
-            return new PortfolioCurrentValueUpdate(currentValue, currentValue, currentValue);
+            BigDecimal cv = findCurrentValue(portfolioId);
+            return new PortfolioCurrentValueUpdate(cv, cv, BigDecimal.ZERO);
         }
 
         @Override
         public Long findAssetCount(Long portfolioId) {
-            return assetCounts.get(portfolioId);
+            PortfolioMetadata meta = portfolioMetadata.get(portfolioId);
+            return meta != null ? meta.assetCount() : 0L;
         }
 
         @Override
-        public boolean increaseStockQuantity(Long stockId, Long portfolioId, BigDecimal quantity) {
-            throw new UnsupportedOperationException();
+        public Map<Long, PortfolioMetadata> bulkFetchPortfolioMetadata(List<Long> portfolioIds) {
+            Map<Long, PortfolioMetadata> result = new HashMap<>();
+            for (Long id : portfolioIds) {
+                PortfolioMetadata meta = portfolioMetadata.get(id);
+                if (meta != null) {
+                    result.put(id, meta);
+                }
+            }
+            return result;
         }
 
         @Override
-        public boolean decreaseStockQuantity(Long stockId, Long portfolioId, BigDecimal quantity) {
-            throw new UnsupportedOperationException();
+        public Map<String, StockHolding> bulkFetchStockHoldings(List<StockHoldingKey> tasks) {
+            Map<String, StockHolding> result = new HashMap<>();
+            for (StockHoldingKey key : tasks) {
+                StockHolding holding = stockHoldings.get(key.toKey());
+                if (holding != null) {
+                    result.put(key.toKey(), holding);
+                }
+            }
+            return result;
         }
 
         @Override
-        public void addPurchasedValue(Long portfolioId, Long amount) {
-            throw new UnsupportedOperationException();
+        public Map<Long, BigDecimal> bulkIncrementCurrentValues(Map<Long, BigDecimal> deltasByPortfolioId) {
+            Map<Long, BigDecimal> result = new HashMap<>();
+            for (var entry : deltasByPortfolioId.entrySet()) {
+                Long portfolioId = entry.getKey();
+                BigDecimal delta = entry.getValue();
+                PortfolioMetadata meta = portfolioMetadata.get(portfolioId);
+                BigDecimal oldCV = meta != null ? meta.currentValue() : BigDecimal.ZERO;
+                BigDecimal newCV = oldCV.add(delta);
+                currentValues.put(portfolioId, newCV);
+                result.put(portfolioId, newCV);
+            }
+            return result;
         }
 
         @Override
-        public void subtractPurchasedValue(Long portfolioId, Long amount) {
-            throw new UnsupportedOperationException();
+        public String stockCurrentValueKey(Long portfolioId, Long stockId) {
+            return "portfolio:" + portfolioId + ":stock:" + stockId + ":current-value";
         }
 
         @Override
-        public void addCurrentValue(Long portfolioId, BigDecimal amount) {
-            throw new UnsupportedOperationException();
+        public void bulkSetStockCurrentValues(Map<String, BigDecimal> updates) {
+            // no-op for tests
         }
 
-        @Override
-        public void subtractCurrentValue(Long portfolioId, BigDecimal amount) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void addStockCurrentValue(Long stockId, Long portfolioId, BigDecimal amount) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void subtractStockCurrentValue(Long stockId, Long portfolioId, BigDecimal amount) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void increaseAssetCount(Long portfolioId) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void decreaseAssetCount(Long portfolioId) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void deletePortfolioState(Long portfolioId) {
-            throw new UnsupportedOperationException();
-        }
+        @Override public boolean increaseStockQuantity(Long stockId, Long portfolioId, BigDecimal quantity) { throw new UnsupportedOperationException(); }
+        @Override public boolean decreaseStockQuantity(Long stockId, Long portfolioId, BigDecimal quantity) { throw new UnsupportedOperationException(); }
+        @Override public void addPurchasedValue(Long portfolioId, Long amount) { throw new UnsupportedOperationException(); }
+        @Override public void subtractPurchasedValue(Long portfolioId, Long amount) { throw new UnsupportedOperationException(); }
+        @Override public void addCurrentValue(Long portfolioId, BigDecimal amount) { throw new UnsupportedOperationException(); }
+        @Override public void subtractCurrentValue(Long portfolioId, BigDecimal amount) { throw new UnsupportedOperationException(); }
+        @Override public void addStockCurrentValue(Long stockId, Long portfolioId, BigDecimal amount) { throw new UnsupportedOperationException(); }
+        @Override public void subtractStockCurrentValue(Long stockId, Long portfolioId, BigDecimal amount) { throw new UnsupportedOperationException(); }
+        @Override public void increaseAssetCount(Long portfolioId) { throw new UnsupportedOperationException(); }
+        @Override public void decreaseAssetCount(Long portfolioId) { throw new UnsupportedOperationException(); }
+        @Override public void deletePortfolioState(Long portfolioId) { throw new UnsupportedOperationException(); }
     }
 
     private static class FakeUserStateStore implements UserStateStore {
 
-        private final FakeValuationRepository valuationRepository;
-        private final Map<Long, String> userIdsByPortfolioId = new HashMap<>(Map.of(1L, "100", 2L, "100"));
-        private final Map<String, List<Long>> portfolioIdsByUserId = new HashMap<>(Map.of("100", List.of(1L, 2L)));
-        private final Map<String, Long> purchasedValues = new HashMap<>(Map.of("100", 2_000L));
-        private final Map<String, Long> portfolioCounts = Map.of("100", 2L);
-        private final Map<String, BigDecimal> currentValues = new HashMap<>(Map.of("100", new BigDecimal("0")));
-
-        private FakeUserStateStore(FakeValuationRepository valuationRepository) {
-            this.valuationRepository = valuationRepository;
-        }
+        final Map<String, UserMetadata> userMetadata = new HashMap<>();
+        final Map<String, BigDecimal> currentValues = new HashMap<>();
 
         @Override
-        public String findUserIdByPortfolioId(Long portfolioId) {
-            return userIdsByPortfolioId.get(portfolioId);
-        }
+        public String findUserIdByPortfolioId(Long portfolioId) { throw new UnsupportedOperationException(); }
 
         @Override
         public Long findPurchasedValue(String userId) {
-            return purchasedValues.get(userId);
+            UserMetadata meta = userMetadata.get(userId);
+            return meta != null ? meta.purchasedValue() : 0L;
         }
 
         @Override
         public BigDecimal calculateCurrentValue(String userId) {
-            return portfolioIdsByUserId.get(userId).stream()
-                    .map(valuationRepository.portfolioValuations::get)
-                    .map(PortfolioValuation::getCurrentValue)
-                    .map(BigDecimal::valueOf)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            return currentValues.getOrDefault(userId, BigDecimal.ZERO);
         }
 
         @Override
@@ -290,52 +292,53 @@ class ProfitCalculateServiceTest {
 
         @Override
         public BigDecimal addCurrentValue(String userId, BigDecimal delta) {
-            BigDecimal nextValue = currentValues.getOrDefault(userId, BigDecimal.ZERO).add(delta);
-            currentValues.put(userId, nextValue);
-            return nextValue;
+            BigDecimal newValue = currentValues.getOrDefault(userId, BigDecimal.ZERO).add(delta);
+            currentValues.put(userId, newValue);
+            return newValue;
         }
 
         @Override
         public Long findPortfolioCount(String userId) {
-            return portfolioCounts.get(userId);
+            UserMetadata meta = userMetadata.get(userId);
+            return meta != null ? meta.portfolioCount() : 0L;
         }
 
         @Override
-        public void mapPortfolioToUser(Long portfolioId, String userId) {
-            throw new UnsupportedOperationException();
+        public Map<String, UserMetadata> bulkFetchUserMetadata(List<String> userIds) {
+            Map<String, UserMetadata> result = new HashMap<>();
+            for (String id : userIds) {
+                UserMetadata meta = userMetadata.get(id);
+                if (meta != null) {
+                    result.put(id, meta);
+                }
+            }
+            return result;
         }
 
         @Override
-        public void removePortfolioUserMapping(Long portfolioId) {
-            throw new UnsupportedOperationException();
+        public Map<String, BigDecimal> bulkIncrementCurrentValues(Map<String, BigDecimal> deltasByUserId) {
+            Map<String, BigDecimal> result = new HashMap<>();
+            for (var entry : deltasByUserId.entrySet()) {
+                BigDecimal newValue = currentValues.getOrDefault(entry.getKey(), BigDecimal.ZERO).add(entry.getValue());
+                currentValues.put(entry.getKey(), newValue);
+                result.put(entry.getKey(), newValue);
+            }
+            return result;
         }
 
-        @Override
-        public void addPurchasedValue(String userId, Long amount) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void subtractPurchasedValue(String userId, Long amount) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void increasePortfolioCount(String userId) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void decreasePortfolioCount(String userId) {
-            throw new UnsupportedOperationException();
-        }
+        @Override public void mapPortfolioToUser(Long portfolioId, String userId) { throw new UnsupportedOperationException(); }
+        @Override public void removePortfolioUserMapping(Long portfolioId) { throw new UnsupportedOperationException(); }
+        @Override public void addPurchasedValue(String userId, Long amount) { throw new UnsupportedOperationException(); }
+        @Override public void subtractPurchasedValue(String userId, Long amount) { throw new UnsupportedOperationException(); }
+        @Override public void increasePortfolioCount(String userId) { throw new UnsupportedOperationException(); }
+        @Override public void decreasePortfolioCount(String userId) { throw new UnsupportedOperationException(); }
     }
 
     private static class FakeValuationRepository implements ValuationRepository {
 
-        private final Map<Long, PortfolioValuation> portfolioValuations = new ConcurrentHashMap<>();
-        private final Map<String, UserValuation> userValuations = new ConcurrentHashMap<>();
-        private final List<UserValuation> savedUserValuations = new ArrayList<>();
+        final Map<Long, PortfolioValuation> portfolioValuations = new ConcurrentHashMap<>();
+        final Map<String, UserValuation> userValuations = new ConcurrentHashMap<>();
+        final List<UserValuation> savedUserValuations = new ArrayList<>();
 
         @Override
         public void savePortfolioValuation(PortfolioValuation valuation) {
@@ -351,6 +354,21 @@ class ProfitCalculateServiceTest {
         public void saveUserValuation(UserValuation valuation) {
             userValuations.put(valuation.getUserId(), valuation);
             savedUserValuations.add(valuation);
+        }
+
+        @Override
+        public void bulkSavePortfolioValuations(List<PortfolioValuation> valuations) {
+            for (PortfolioValuation v : valuations) {
+                portfolioValuations.put(v.getPortfolioId(), v);
+            }
+        }
+
+        @Override
+        public void bulkSaveUserValuations(List<UserValuation> valuations) {
+            for (UserValuation v : valuations) {
+                userValuations.put(v.getUserId(), v);
+                savedUserValuations.add(v);
+            }
         }
     }
 }

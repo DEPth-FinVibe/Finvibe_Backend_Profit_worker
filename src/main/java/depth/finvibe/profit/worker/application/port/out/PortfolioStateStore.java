@@ -2,6 +2,7 @@ package depth.finvibe.profit.worker.application.port.out;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 포트폴리오 단위 수익률 계산과 캐시 갱신에 필요한 상태 저장소 포트.
@@ -151,10 +152,58 @@ public interface PortfolioStateStore {
      */
     void deletePortfolioState(Long portfolioId);
 
+    /**
+     * 여러 포트폴리오의 메타데이터(구매액, 종목수, 소유유저, 평가액)를 일괄 조회한다.
+     *
+     * @param portfolioIds 포트폴리오 ID 목록
+     * @return portfolioId → PortfolioMetadata 매핑
+     */
+    Map<Long, PortfolioMetadata> bulkFetchPortfolioMetadata(List<Long> portfolioIds);
+
+    /**
+     * 여러 포트폴리오-종목 조합의 보유수량과 현재평가액을 일괄 조회한다.
+     *
+     * @param tasks portfolioId+stockId 조합 목록
+     * @return "portfolioId:stockId" → StockHolding 매핑
+     */
+    Map<String, StockHolding> bulkFetchStockHoldings(List<StockHoldingKey> tasks);
+
+    /**
+     * 여러 포트폴리오-종목의 현재평가액을 일괄 저장한다.
+     *
+     * @param updates "portfolio:{id}:stock:{stockId}:current-value" → 새 값 매핑
+     */
+    void bulkSetStockCurrentValues(Map<String, BigDecimal> updates);
+
+    /**
+     * 여러 포트폴리오의 현재 평가액에 delta를 원자적으로 누적 반영한다 (pipeline).
+     *
+     * @param deltasByPortfolioId portfolioId → delta 매핑
+     * @return portfolioId → 반영 후 평가액 매핑
+     */
+    Map<Long, BigDecimal> bulkIncrementCurrentValues(Map<Long, BigDecimal> deltasByPortfolioId);
+
+    /**
+     * 포트폴리오-종목의 현재평가액 키를 생성한다.
+     */
+    String stockCurrentValueKey(Long portfolioId, Long stockId);
+
     record PortfolioCurrentValueUpdate(
             BigDecimal previousCurrentValue,
             BigDecimal currentValue,
             BigDecimal delta
     ) {
+    }
+
+    record PortfolioMetadata(Long purchasedValue, Long assetCount, String userId, BigDecimal currentValue) {
+    }
+
+    record StockHolding(BigDecimal quantity, BigDecimal currentValue) {
+    }
+
+    record StockHoldingKey(Long portfolioId, Long stockId) {
+        public String toKey() {
+            return portfolioId + ":" + stockId;
+        }
     }
 }

@@ -2,26 +2,22 @@ package depth.finvibe.profit.worker.application;
 
 import depth.finvibe.profit.worker.application.port.in.ProfitCalculationUseCase;
 import depth.finvibe.profit.worker.application.port.out.PortfolioStateStore;
+import depth.finvibe.profit.worker.application.port.out.PortfolioStateStore.PortfolioMetadata;
+import depth.finvibe.profit.worker.application.port.out.PortfolioStateStore.StockHolding;
+import depth.finvibe.profit.worker.application.port.out.PortfolioStateStore.StockHoldingKey;
 import depth.finvibe.profit.worker.application.port.out.UserStateStore;
+import depth.finvibe.profit.worker.application.port.out.UserStateStore.UserMetadata;
 import depth.finvibe.profit.worker.application.port.out.ValuationRepository;
 import depth.finvibe.profit.worker.domain.PortfolioValuation;
 import depth.finvibe.profit.worker.domain.UserValuation;
 import depth.finvibe.profit.worker.dto.ProfitCalculationDto;
 import io.micrometer.core.instrument.Timer;
-import org.springframework.beans.factory.annotation.Qualifier;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.Map;
-import java.util.List;
-import java.util.Objects;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.Executor;
-import java.util.stream.Collectors;
+import java.util.*;
 
 /**
  * 주식 가격이 변동되었을때, 다음의 항목을 갱신한다. <br />
@@ -29,27 +25,13 @@ import java.util.stream.Collectors;
  * - 관련 유저의 수익률, 평가액
  */
 @Service
+@RequiredArgsConstructor
 public class ProfitCalculateService implements ProfitCalculationUseCase {
 
     private final PortfolioStateStore portfolioStateStore;
     private final UserStateStore userStateStore;
     private final ValuationRepository valuationRepository;
     private final ProfitWorkerMetrics metrics;
-    private final Executor recalculationExecutor;
-
-    public ProfitCalculateService(
-            PortfolioStateStore portfolioStateStore,
-            UserStateStore userStateStore,
-            ValuationRepository valuationRepository,
-            ProfitWorkerMetrics metrics,
-            @Qualifier("profitRecalculationExecutor") Executor recalculationExecutor
-    ) {
-        this.portfolioStateStore = portfolioStateStore;
-        this.userStateStore = userStateStore;
-        this.valuationRepository = valuationRepository;
-        this.metrics = metrics;
-        this.recalculationExecutor = recalculationExecutor;
-    }
 
     @Override
     public void updateProfitByStockPriceChange(ProfitCalculationDto.ProfitCalculationRequest request) {
@@ -79,19 +61,116 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
                     reverseIndexSample
             );
 
-            // Phase 2: 포트폴리오 재계산 — 모든 이벤트의 작업을 한 번에 병렬 처리
-            Timer.Sample portfolioFanoutSample = metrics.startSample();
-            Map<String, BigDecimal> userDeltaByUserId = recalculatePortfolios(tasks);
+            if (tasks.isEmpty()) {
+                result = ProfitWorkerMetrics.RESULT_SUCCESS;
+                return;
+            }
+
+            // Phase 2: 벌크 프리패치 — 모든 포트폴리오 메타데이터 + 종목 보유 정보를 파이프라인으로 일괄 조회
+            Timer.Sample prefetchSample = metrics.startSample();
+            List<Long> portfolioIds = tasks.stream().map(PortfolioRecalculationTask::portfolioId).distinct().toList();
+            List<StockHoldingKey> holdingKeys = tasks.stream()
+                    .map(t -> new StockHoldingKey(t.portfolioId(), t.stockId()))
+                    .toList();
+
+            Map<Long, PortfolioMetadata> portfolioMetadata = portfolioStateStore.bulkFetchPortfolioMetadata(portfolioIds);
+            Map<String, StockHolding> stockHoldings = portfolioStateStore.bulkFetchStockHoldings(holdingKeys);
+            metrics.recordPhaseDuration(
+                    ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION,
+                    "bulk_prefetch",
+                    ProfitWorkerMetrics.RESULT_SUCCESS,
+                    prefetchSample
+            );
+
+            // Phase 3: 인메모리 연산 — 델타 계산 (Redis 호출 없음)
+            Timer.Sample computeSample = metrics.startSample();
+            Map<Long, BigDecimal> portfolioDeltaSum = new HashMap<>();
+            Map<String, BigDecimal> newStockCurrentValues = new HashMap<>();
+
+            for (PortfolioRecalculationTask task : tasks) {
+                String holdingKey = task.portfolioId() + ":" + task.stockId();
+                StockHolding holding = stockHoldings.getOrDefault(holdingKey, new StockHolding(BigDecimal.ZERO, BigDecimal.ZERO));
+
+                if (holding.quantity().signum() == 0) {
+                    continue;
+                }
+
+                BigDecimal newStockCV = BigDecimal.valueOf(task.newPrice()).multiply(holding.quantity());
+                BigDecimal delta = newStockCV.subtract(holding.currentValue());
+
+                portfolioDeltaSum.merge(task.portfolioId(), delta, BigDecimal::add);
+                String stockCVKey = portfolioStateStore.stockCurrentValueKey(task.portfolioId(), task.stockId());
+                newStockCurrentValues.put(stockCVKey, newStockCV);
+            }
+            metrics.recordPhaseDuration(
+                    ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION,
+                    "in_memory_compute",
+                    ProfitWorkerMetrics.RESULT_SUCCESS,
+                    computeSample
+            );
+
+            // Phase 4: 파이프라인 HINCRBYFLOAT — 포트폴리오 평가액 원자적 갱신
+            Timer.Sample portfolioIncrSample = metrics.startSample();
+            Map<Long, BigDecimal> newPortfolioCVs = portfolioDeltaSum.isEmpty()
+                    ? Map.of()
+                    : portfolioStateStore.bulkIncrementCurrentValues(portfolioDeltaSum);
+            metrics.recordPhaseDuration(
+                    ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION,
+                    "pipeline_portfolio_incr",
+                    ProfitWorkerMetrics.RESULT_SUCCESS,
+                    portfolioIncrSample
+            );
+
+            // Phase 5: 파이프라인 SET — 종목별 현재 평가액 일괄 저장
+            Timer.Sample stockCVSample = metrics.startSample();
+            if (!newStockCurrentValues.isEmpty()) {
+                portfolioStateStore.bulkSetStockCurrentValues(newStockCurrentValues);
+            }
+            metrics.recordPhaseDuration(
+                    ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION,
+                    "pipeline_stock_cv_set",
+                    ProfitWorkerMetrics.RESULT_SUCCESS,
+                    stockCVSample
+            );
+
+            // Phase 6: 포트폴리오 평가 snapshot 빌드 + 일괄 저장
+            Timer.Sample portfolioValSample = metrics.startSample();
+            Map<String, BigDecimal> userDeltaByUserId = new HashMap<>();
+            List<PortfolioValuation> portfolioValuations = new ArrayList<>();
+
+            for (Long portfolioId : portfolioDeltaSum.keySet()) {
+                PortfolioMetadata meta = portfolioMetadata.get(portfolioId);
+                BigDecimal newCV = newPortfolioCVs.getOrDefault(portfolioId, meta != null ? meta.currentValue() : BigDecimal.ZERO);
+                Long purchasedValue = meta != null ? meta.purchasedValue() : 0L;
+                Long assetCount = meta != null ? meta.assetCount() : 0L;
+                String userId = meta != null ? meta.userId() : null;
+
+                portfolioValuations.add(PortfolioValuation.builder()
+                        .portfolioId(portfolioId)
+                        .purchasedValue(purchasedValue)
+                        .currentValue(roundToLong(newCV))
+                        .profitRate(calculateProfitRate(purchasedValue, newCV))
+                        .assetCount(assetCount)
+                        .build());
+
+                if (userId != null) {
+                    BigDecimal delta = portfolioDeltaSum.get(portfolioId);
+                    userDeltaByUserId.merge(userId, delta, BigDecimal::add);
+                }
+            }
+            valuationRepository.bulkSavePortfolioValuations(portfolioValuations);
             metrics.recordPhaseDuration(
                     ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION,
                     ProfitWorkerMetrics.PHASE_PORTFOLIO_FANOUT,
                     ProfitWorkerMetrics.RESULT_SUCCESS,
-                    portfolioFanoutSample
+                    portfolioValSample
             );
 
-            // Phase 3: 유저 재계산 — 합산된 delta로 한 번에 병렬 처리
+            // Phase 7: 유저 재계산 — 벌크 HINCRBYFLOAT + 메타데이터 프리패치 + 일괄 저장
             Timer.Sample userFanoutSample = metrics.startSample();
-            recalculateUsers(userDeltaByUserId);
+            if (!userDeltaByUserId.isEmpty()) {
+                recalculateUsersBulk(userDeltaByUserId);
+            }
             metrics.recordPhaseDuration(
                     ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION,
                     ProfitWorkerMetrics.PHASE_USER_FANOUT,
@@ -107,74 +186,31 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
         }
     }
 
-    private Map<String, BigDecimal> recalculatePortfolios(List<PortfolioRecalculationTask> tasks) {
-        Map<String, BigDecimal> userDeltaByUserId = new ConcurrentHashMap<>();
-        List<CompletableFuture<UserDeltaUpdate>> futures = tasks.stream()
-                .map(task -> CompletableFuture.supplyAsync(
-                        () -> recalculatePortfolio(task.portfolioId(), task.stockId(), task.newPrice()),
-                        recalculationExecutor
-                ))
-                .toList();
-        futures.stream()
-                .map(this::joinFuture)
-                .filter(Objects::nonNull)
-                .forEach(update -> userDeltaByUserId.merge(update.userId(), update.delta(), BigDecimal::add));
-        return userDeltaByUserId;
-    }
+    private void recalculateUsersBulk(Map<String, BigDecimal> userDeltaByUserId) {
+        // Pipeline HINCRBYFLOAT per user — 원자적 평가액 갱신
+        Map<String, BigDecimal> newUserCVs = userStateStore.bulkIncrementCurrentValues(userDeltaByUserId);
 
-    private UserDeltaUpdate recalculatePortfolio(Long portfolioId, Long stockId, Long newPrice) {
-        Long purchasedValue = portfolioStateStore.findPurchasedValue(portfolioId);
-        PortfolioStateStore.PortfolioCurrentValueUpdate currentValueUpdate =
-                portfolioStateStore.recalculateCurrentValue(portfolioId, stockId, newPrice);
-        BigDecimal currentValue = currentValueUpdate.currentValue();
+        // Pipeline HMGET — 유저 메타데이터 일괄 조회
+        List<String> userIds = new ArrayList<>(userDeltaByUserId.keySet());
+        Map<String, UserMetadata> userMetadata = userStateStore.bulkFetchUserMetadata(userIds);
 
-        valuationRepository.savePortfolioValuation(PortfolioValuation.builder()
-                .portfolioId(portfolioId)
-                .purchasedValue(purchasedValue)
-                .currentValue(roundToLong(currentValue))
-                .profitRate(calculateProfitRate(purchasedValue, currentValue))
-                .assetCount(portfolioStateStore.findAssetCount(portfolioId))
-                .build());
+        // 인메모리 빌드 + 파이프라인 저장
+        List<UserValuation> userValuations = new ArrayList<>();
+        for (String userId : userIds) {
+            UserMetadata meta = userMetadata.get(userId);
+            BigDecimal currentValue = newUserCVs.getOrDefault(userId, BigDecimal.ZERO);
+            Long purchasedValue = meta != null ? meta.purchasedValue() : 0L;
+            Long portfolioCount = meta != null ? meta.portfolioCount() : 0L;
 
-        String userId = userStateStore.findUserIdByPortfolioId(portfolioId);
-        if (userId == null) {
-            return null;
+            userValuations.add(UserValuation.builder()
+                    .userId(userId)
+                    .purchasedValue(purchasedValue)
+                    .currentValue(roundToLong(currentValue))
+                    .profitRate(calculateProfitRate(purchasedValue, currentValue))
+                    .portfolioCount(portfolioCount)
+                    .build());
         }
-        return new UserDeltaUpdate(userId, currentValueUpdate.delta());
-    }
-
-    private void recalculateUsers(Map<String, BigDecimal> userDeltaByUserId) {
-        List<CompletableFuture<Void>> futures = userDeltaByUserId.entrySet().stream()
-                .map(entry -> CompletableFuture.runAsync(
-                        () -> recalculateUser(entry.getKey(), entry.getValue()),
-                        recalculationExecutor
-                ))
-                .toList();
-        futures.forEach(this::joinFuture);
-    }
-
-    private void recalculateUser(String userId, BigDecimal delta) {
-        Long purchasedValue = userStateStore.findPurchasedValue(userId);
-        BigDecimal currentValue = userStateStore.addCurrentValue(userId, delta);
-
-        valuationRepository.saveUserValuation(UserValuation.builder()
-                .userId(userId)
-                .purchasedValue(purchasedValue)
-                .currentValue(roundToLong(currentValue))
-                .profitRate(calculateProfitRate(purchasedValue, currentValue))
-                .portfolioCount(userStateStore.findPortfolioCount(userId))
-                .build());
-    }
-
-    private <T> T joinFuture(CompletableFuture<T> future) {
-        try {
-            return future.join();
-        } catch (CompletionException e) {
-            if (e.getCause() instanceof RuntimeException runtimeException) {
-                throw runtimeException;
-            }
-            throw e;
-        }
+        valuationRepository.bulkSaveUserValuations(userValuations);
     }
 
     private Double calculateProfitRate(Long purchasedValue, BigDecimal currentValue) {
@@ -194,8 +230,5 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
     }
 
     private record PortfolioRecalculationTask(Long portfolioId, Long stockId, Long newPrice) {
-    }
-
-    private record UserDeltaUpdate(String userId, BigDecimal delta) {
     }
 }

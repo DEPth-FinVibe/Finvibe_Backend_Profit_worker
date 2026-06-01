@@ -8,6 +8,10 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Component
@@ -101,6 +105,68 @@ public class RedisUserStateStore implements UserStateStore {
     @Override
     public void decreasePortfolioCount(String userId) {
         incrementHash(userHashKey(userId), "pc", -1L);
+    }
+
+    @Override
+    public Map<String, UserMetadata> bulkFetchUserMetadata(List<String> userIds) {
+        Timer.Sample sample = metrics.startSample();
+        try {
+            List<Object> results = redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
+                var hashCommands = connection.hashCommands();
+                for (String userId : userIds) {
+                    byte[] key = redisTemplate.getStringSerializer().serialize(userHashKey(userId));
+                    hashCommands.hMGet(key,
+                            redisTemplate.getStringSerializer().serialize("pv"),
+                            redisTemplate.getStringSerializer().serialize("pc"));
+                }
+                return null;
+            });
+
+            Map<String, UserMetadata> metadataMap = new HashMap<>();
+            for (int i = 0; i < userIds.size(); i++) {
+                @SuppressWarnings("unchecked")
+                List<Object> fields = (List<Object>) results.get(i);
+                Long pv = parseNullableLong(fields.get(0));
+                Long pc = parseNullableLong(fields.get(1));
+                metadataMap.put(userIds.get(i), new UserMetadata(pv, pc));
+            }
+            return metadataMap;
+        } finally {
+            metrics.recordRedisCommandDuration("pipeline_hmget_user", ProfitWorkerMetrics.RESULT_SUCCESS, sample);
+        }
+    }
+
+    @Override
+    public Map<String, BigDecimal> bulkIncrementCurrentValues(Map<String, BigDecimal> deltasByUserId) {
+        Timer.Sample sample = metrics.startSample();
+        try {
+            List<String> userIds = new ArrayList<>(deltasByUserId.keySet());
+            List<Object> results = redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
+                var hashCommands = connection.hashCommands();
+                byte[] fieldBytes = redisTemplate.getStringSerializer().serialize("cvp");
+                for (String userId : userIds) {
+                    byte[] key = redisTemplate.getStringSerializer().serialize(userHashKey(userId));
+                    BigDecimal delta = deltasByUserId.get(userId);
+                    hashCommands.hIncrBy(key, fieldBytes, delta.doubleValue());
+                }
+                return null;
+            });
+
+            Map<String, BigDecimal> resultMap = new HashMap<>();
+            for (int i = 0; i < userIds.size(); i++) {
+                Object raw = results.get(i);
+                BigDecimal newValue = raw == null ? BigDecimal.ZERO : BigDecimal.valueOf(((Number) raw).doubleValue());
+                resultMap.put(userIds.get(i), newValue);
+            }
+            return resultMap;
+        } finally {
+            metrics.recordRedisCommandDuration("pipeline_hincrbyfloat_user_cv", ProfitWorkerMetrics.RESULT_SUCCESS, sample);
+        }
+    }
+
+    private Long parseNullableLong(Object value) {
+        if (value == null) return 0L;
+        return Long.valueOf(value.toString());
     }
 
     private Long getHashLong(String key, String field) {
