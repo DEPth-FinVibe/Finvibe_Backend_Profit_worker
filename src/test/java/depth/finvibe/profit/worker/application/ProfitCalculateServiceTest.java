@@ -244,6 +244,15 @@ class ProfitCalculateServiceTest {
         }
 
         @Override
+        public Map<Long, List<Long>> bulkFindPortfolioIdsByStockIds(List<Long> stockIds) {
+            Map<Long, List<Long>> result = new HashMap<>();
+            for (Long stockId : stockIds) {
+                result.put(stockId, portfolioIdsByStockId.getOrDefault(stockId, List.of()));
+            }
+            return result;
+        }
+
+        @Override
         public String stockCurrentValueKey(Long portfolioId, Long stockId) {
             return "portfolio:" + portfolioId + ":stock:" + stockId + ":current-value";
         }

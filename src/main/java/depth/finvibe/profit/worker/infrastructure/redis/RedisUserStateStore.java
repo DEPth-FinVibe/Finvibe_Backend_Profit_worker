@@ -122,6 +122,8 @@ public class RedisUserStateStore implements UserStateStore {
                 return null;
             });
 
+            validatePipelineResultCount("bulkFetchUserMetadata", userIds.size(), results.size());
+
             Map<String, UserMetadata> metadataMap = new HashMap<>();
             for (int i = 0; i < userIds.size(); i++) {
                 @SuppressWarnings("unchecked")
@@ -151,6 +153,8 @@ public class RedisUserStateStore implements UserStateStore {
                 }
                 return null;
             });
+
+            validatePipelineResultCount("bulkIncrementCurrentValues(user)", userIds.size(), results.size());
 
             Map<String, BigDecimal> resultMap = new HashMap<>();
             for (int i = 0; i < userIds.size(); i++) {
@@ -276,5 +280,11 @@ public class RedisUserStateStore implements UserStateStore {
 
     private String userPortfoliosKey(String userId) {
         return "user:" + userId + ":portfolios";
+    }
+
+    private void validatePipelineResultCount(String operation, int expected, int actual) {
+        if (expected != actual) {
+            throw new PipelineResultMismatchException(operation, expected, actual);
+        }
     }
 }

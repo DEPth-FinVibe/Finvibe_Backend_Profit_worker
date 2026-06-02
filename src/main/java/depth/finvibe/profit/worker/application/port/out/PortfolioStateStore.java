@@ -184,6 +184,14 @@ public interface PortfolioStateStore {
     Map<Long, BigDecimal> bulkIncrementCurrentValues(Map<Long, BigDecimal> deltasByPortfolioId);
 
     /**
+     * 여러 종목에 대해 해당 종목을 보유한 포트폴리오 ID 목록을 일괄 조회한다 (pipeline SMEMBERS).
+     *
+     * @param stockIds 종목 ID 목록
+     * @return stockId → 포트폴리오 ID 목록 매핑
+     */
+    Map<Long, List<Long>> bulkFindPortfolioIdsByStockIds(List<Long> stockIds);
+
+    /**
      * 포트폴리오-종목의 현재평가액 키를 생성한다.
      */
     String stockCurrentValueKey(Long portfolioId, Long stockId);

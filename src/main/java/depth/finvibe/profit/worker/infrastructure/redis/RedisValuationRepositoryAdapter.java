@@ -85,7 +85,7 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
             String updatedAtStr = updatedAt.toString();
             String dirtyKey = dirtyPortfolioValuationsKey();
 
-            redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
+            List<Object> results = redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
                 var hashCommands = connection.hashCommands();
                 var setCommands = connection.setCommands();
                 byte[] dirtyKeyBytes = redisTemplate.getStringSerializer().serialize(dirtyKey);
@@ -104,6 +104,7 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
                 }
                 return null;
             });
+            validatePipelineResultCount("bulkSavePortfolioValuations", valuations.size() * 2, results.size());
         } finally {
             metrics.recordRedisCommandDuration("pipeline_save_portfolio_valuations", ProfitWorkerMetrics.RESULT_SUCCESS, sample);
         }
@@ -117,7 +118,7 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
             String updatedAtStr = updatedAt.toString();
             String dirtyKey = dirtyUserValuationsKey();
 
-            redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
+            List<Object> results = redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
                 var hashCommands = connection.hashCommands();
                 var setCommands = connection.setCommands();
                 byte[] dirtyKeyBytes = redisTemplate.getStringSerializer().serialize(dirtyKey);
@@ -135,6 +136,7 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
                 }
                 return null;
             });
+            validatePipelineResultCount("bulkSaveUserValuations", valuations.size() * 2, results.size());
         } finally {
             metrics.recordRedisCommandDuration("pipeline_save_user_valuations", ProfitWorkerMetrics.RESULT_SUCCESS, sample);
         }
@@ -180,5 +182,11 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
 
     private String userHashKey(String userId) {
         return "usr:" + userId;
+    }
+
+    private void validatePipelineResultCount(String operation, int expected, int actual) {
+        if (expected != actual) {
+            throw new PipelineResultMismatchException(operation, expected, actual);
+        }
     }
 }

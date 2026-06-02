@@ -363,6 +363,8 @@ class CacheUpdateServiceTest {
         @Override
         public Map<Long, BigDecimal> bulkIncrementCurrentValues(Map<Long, BigDecimal> deltasByPortfolioId) { throw new UnsupportedOperationException(); }
         @Override
+        public Map<Long, List<Long>> bulkFindPortfolioIdsByStockIds(List<Long> stockIds) { throw new UnsupportedOperationException(); }
+        @Override
         public String stockCurrentValueKey(Long portfolioId, Long stockId) { return portfolioId + ":" + stockId; }
 
         private String stockQuantityKey(Long portfolioId, Long stockId) {

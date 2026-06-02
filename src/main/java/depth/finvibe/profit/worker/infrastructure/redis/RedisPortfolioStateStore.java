@@ -179,6 +179,8 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
                 return null;
             });
 
+            validatePipelineResultCount("bulkFetchPortfolioMetadata", portfolioIds.size(), results.size());
+
             Map<Long, PortfolioMetadata> metadataMap = new HashMap<>();
             for (int i = 0; i < portfolioIds.size(); i++) {
                 @SuppressWarnings("unchecked")
@@ -218,6 +220,8 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
                 return null;
             });
 
+            validatePipelineResultCount("bulkFetchStockHoldings", tasks.size() * 2, results.size());
+
             Map<String, StockHolding> holdings = new HashMap<>();
             for (int i = 0; i < tasks.size(); i++) {
                 Object quantityRaw = results.get(i * 2);
@@ -248,6 +252,8 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
                 return null;
             });
 
+            validatePipelineResultCount("bulkIncrementCurrentValues(portfolio)", portfolioIds.size(), results.size());
+
             Map<Long, BigDecimal> resultMap = new HashMap<>();
             for (int i = 0; i < portfolioIds.size(); i++) {
                 Object raw = results.get(i);
@@ -257,6 +263,39 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
             return resultMap;
         } finally {
             metrics.recordRedisCommandDuration("pipeline_hincrbyfloat_portfolio_cv", ProfitWorkerMetrics.RESULT_SUCCESS, sample);
+        }
+    }
+
+    @Override
+    public Map<Long, List<Long>> bulkFindPortfolioIdsByStockIds(List<Long> stockIds) {
+        Timer.Sample sample = metrics.startSample();
+        try {
+            List<Object> results = redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
+                var setCommands = connection.setCommands();
+                for (Long stockId : stockIds) {
+                    setCommands.sMembers(redisTemplate.getStringSerializer().serialize(stockPortfoliosKey(stockId)));
+                }
+                return null;
+            });
+
+            validatePipelineResultCount("bulkFindPortfolioIdsByStockIds", stockIds.size(), results.size());
+
+            Map<Long, List<Long>> resultMap = new HashMap<>();
+            for (int i = 0; i < stockIds.size(); i++) {
+                @SuppressWarnings("unchecked")
+                Set<byte[]> rawMembers = (Set<byte[]>) results.get(i);
+                if (rawMembers == null || rawMembers.isEmpty()) {
+                    resultMap.put(stockIds.get(i), List.of());
+                    continue;
+                }
+                List<Long> portfolioIds = rawMembers.stream()
+                        .map(bytes -> Long.valueOf(new String(bytes)))
+                        .toList();
+                resultMap.put(stockIds.get(i), portfolioIds);
+            }
+            return resultMap;
+        } finally {
+            metrics.recordRedisCommandDuration("pipeline_smembers_reverse_index", ProfitWorkerMetrics.RESULT_SUCCESS, sample);
         }
     }
 
@@ -454,5 +493,11 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
 
     private String portfolioStockCurrentValueKey(Long portfolioId, Long stockId) {
         return "portfolio:" + portfolioId + ":stock:" + stockId + ":current-value";
+    }
+
+    private void validatePipelineResultCount(String operation, int expected, int actual) {
+        if (expected != actual) {
+            throw new PipelineResultMismatchException(operation, expected, actual);
+        }
     }
 }

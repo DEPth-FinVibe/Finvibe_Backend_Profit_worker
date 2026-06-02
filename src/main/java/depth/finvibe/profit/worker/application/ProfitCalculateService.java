@@ -44,16 +44,26 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
         String result = ProfitWorkerMetrics.RESULT_FAILURE;
 
         try {
-            // Phase 1: 역인덱스 조회 — 각 이벤트별 영향받는 포트폴리오 수집
+            // Phase 1: 역인덱스 조회 — 파이프라인 SMEMBERS로 영향받는 포트폴리오 일괄 수집
             Timer.Sample reverseIndexSample = metrics.startSample();
-            List<PortfolioRecalculationTask> tasks = requests.stream()
-                    .flatMap(request -> {
-                        Long stockId = Objects.requireNonNull(request.getStockId());
-                        Long newPrice = Objects.requireNonNull(request.getNewPrice());
-                        return portfolioStateStore.findPortfolioIdsByStockId(stockId).stream()
-                                .map(portfolioId -> new PortfolioRecalculationTask(portfolioId, stockId, newPrice));
-                    })
-                    .toList();
+            Map<Long, Long> priceByStockId = new HashMap<>();
+            List<Long> stockIds = new ArrayList<>();
+            for (ProfitCalculationDto.ProfitCalculationRequest request : requests) {
+                Long stockId = Objects.requireNonNull(request.getStockId());
+                Long newPrice = Objects.requireNonNull(request.getNewPrice());
+                priceByStockId.put(stockId, newPrice);
+                stockIds.add(stockId);
+            }
+
+            Map<Long, List<Long>> portfoliosByStock = portfolioStateStore.bulkFindPortfolioIdsByStockIds(stockIds);
+
+            List<PortfolioRecalculationTask> tasks = new ArrayList<>();
+            for (Long stockId : stockIds) {
+                Long newPrice = priceByStockId.get(stockId);
+                for (Long portfolioId : portfoliosByStock.getOrDefault(stockId, List.of())) {
+                    tasks.add(new PortfolioRecalculationTask(portfolioId, stockId, newPrice));
+                }
+            }
             metrics.recordPhaseDuration(
                     ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION,
                     ProfitWorkerMetrics.PHASE_REVERSE_INDEX_LOOKUP,
