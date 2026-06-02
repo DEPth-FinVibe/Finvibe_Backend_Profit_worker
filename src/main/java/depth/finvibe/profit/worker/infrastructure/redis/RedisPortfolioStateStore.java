@@ -283,13 +283,13 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
             Map<Long, List<Long>> resultMap = new HashMap<>();
             for (int i = 0; i < stockIds.size(); i++) {
                 @SuppressWarnings("unchecked")
-                Set<byte[]> rawMembers = (Set<byte[]>) results.get(i);
+                Set<String> rawMembers = (Set<String>) results.get(i);
                 if (rawMembers == null || rawMembers.isEmpty()) {
                     resultMap.put(stockIds.get(i), List.of());
                     continue;
                 }
                 List<Long> portfolioIds = rawMembers.stream()
-                        .map(bytes -> Long.valueOf(new String(bytes)))
+                        .map(Long::valueOf)
                         .toList();
                 resultMap.put(stockIds.get(i), portfolioIds);
             }
