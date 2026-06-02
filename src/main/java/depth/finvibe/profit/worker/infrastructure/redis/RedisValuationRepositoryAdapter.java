@@ -80,6 +80,7 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
     @Override
     public void bulkSavePortfolioValuations(List<PortfolioValuation> valuations) {
         Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
         try {
             Instant updatedAt = Instant.now();
             String updatedAtStr = updatedAt.toString();
@@ -105,14 +106,16 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
                 return null;
             });
             validatePipelineResultCount("bulkSavePortfolioValuations", valuations.size() * 2, results.size());
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
         } finally {
-            metrics.recordRedisCommandDuration("pipeline_save_portfolio_valuations", ProfitWorkerMetrics.RESULT_SUCCESS, sample);
+            metrics.recordRedisCommandDuration("pipeline_save_portfolio_valuations", result, sample);
         }
     }
 
     @Override
     public void bulkSaveUserValuations(List<UserValuation> valuations) {
         Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
         try {
             Instant updatedAt = Instant.now();
             String updatedAtStr = updatedAt.toString();
@@ -137,8 +140,9 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
                 return null;
             });
             validatePipelineResultCount("bulkSaveUserValuations", valuations.size() * 2, results.size());
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
         } finally {
-            metrics.recordRedisCommandDuration("pipeline_save_user_valuations", ProfitWorkerMetrics.RESULT_SUCCESS, sample);
+            metrics.recordRedisCommandDuration("pipeline_save_user_valuations", result, sample);
         }
     }
 

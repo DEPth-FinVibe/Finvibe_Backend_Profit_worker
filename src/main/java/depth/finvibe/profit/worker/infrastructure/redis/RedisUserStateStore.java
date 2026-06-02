@@ -110,6 +110,7 @@ public class RedisUserStateStore implements UserStateStore {
     @Override
     public Map<String, UserMetadata> bulkFetchUserMetadata(List<String> userIds) {
         Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
         try {
             List<Object> results = redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
                 var hashCommands = connection.hashCommands();
@@ -132,15 +133,17 @@ public class RedisUserStateStore implements UserStateStore {
                 Long pc = parseNullableLong(fields.get(1));
                 metadataMap.put(userIds.get(i), new UserMetadata(pv, pc));
             }
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
             return metadataMap;
         } finally {
-            metrics.recordRedisCommandDuration("pipeline_hmget_user", ProfitWorkerMetrics.RESULT_SUCCESS, sample);
+            metrics.recordRedisCommandDuration("pipeline_hmget_user", result, sample);
         }
     }
 
     @Override
     public Map<String, BigDecimal> bulkIncrementCurrentValues(Map<String, BigDecimal> deltasByUserId) {
         Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
         try {
             List<String> userIds = new ArrayList<>(deltasByUserId.keySet());
             List<Object> results = redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
@@ -162,9 +165,10 @@ public class RedisUserStateStore implements UserStateStore {
                 BigDecimal newValue = raw == null ? BigDecimal.ZERO : BigDecimal.valueOf(((Number) raw).doubleValue());
                 resultMap.put(userIds.get(i), newValue);
             }
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
             return resultMap;
         } finally {
-            metrics.recordRedisCommandDuration("pipeline_hincrbyfloat_user_cv", ProfitWorkerMetrics.RESULT_SUCCESS, sample);
+            metrics.recordRedisCommandDuration("pipeline_hincrbyfloat_user_cv", result, sample);
         }
     }
 

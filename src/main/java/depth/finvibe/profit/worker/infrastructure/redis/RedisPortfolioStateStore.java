@@ -164,6 +164,7 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
     @Override
     public Map<Long, PortfolioMetadata> bulkFetchPortfolioMetadata(List<Long> portfolioIds) {
         Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
         try {
             List<Object> results = redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
                 var hashCommands = connection.hashCommands();
@@ -198,15 +199,17 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
                 }
                 metadataMap.put(portfolioIds.get(i), new PortfolioMetadata(pv, ac, userId, cv));
             }
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
             return metadataMap;
         } finally {
-            metrics.recordRedisCommandDuration("pipeline_hmget_portfolio", ProfitWorkerMetrics.RESULT_SUCCESS, sample);
+            metrics.recordRedisCommandDuration("pipeline_hmget_portfolio", result, sample);
         }
     }
 
     @Override
     public Map<String, StockHolding> bulkFetchStockHoldings(List<StockHoldingKey> tasks) {
         Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
         try {
             // Pipeline: GET quantity + GET current-value for each task (2 commands per task)
             List<Object> results = redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
@@ -230,15 +233,17 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
                 BigDecimal currentValue = currentValueRaw == null ? BigDecimal.ZERO : new BigDecimal(currentValueRaw.toString());
                 holdings.put(tasks.get(i).toKey(), new StockHolding(quantity, currentValue));
             }
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
             return holdings;
         } finally {
-            metrics.recordRedisCommandDuration("pipeline_get_stock_holdings", ProfitWorkerMetrics.RESULT_SUCCESS, sample);
+            metrics.recordRedisCommandDuration("pipeline_get_stock_holdings", result, sample);
         }
     }
 
     @Override
     public Map<Long, BigDecimal> bulkIncrementCurrentValues(Map<Long, BigDecimal> deltasByPortfolioId) {
         Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
         try {
             List<Long> portfolioIds = new ArrayList<>(deltasByPortfolioId.keySet());
             List<Object> results = redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
@@ -260,15 +265,17 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
                 BigDecimal newValue = raw == null ? BigDecimal.ZERO : BigDecimal.valueOf(((Number) raw).doubleValue());
                 resultMap.put(portfolioIds.get(i), newValue);
             }
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
             return resultMap;
         } finally {
-            metrics.recordRedisCommandDuration("pipeline_hincrbyfloat_portfolio_cv", ProfitWorkerMetrics.RESULT_SUCCESS, sample);
+            metrics.recordRedisCommandDuration("pipeline_hincrbyfloat_portfolio_cv", result, sample);
         }
     }
 
     @Override
     public Map<Long, List<Long>> bulkFindPortfolioIdsByStockIds(List<Long> stockIds) {
         Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
         try {
             List<Object> results = redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
                 var setCommands = connection.setCommands();
@@ -293,9 +300,10 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
                         .toList();
                 resultMap.put(stockIds.get(i), portfolioIds);
             }
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
             return resultMap;
         } finally {
-            metrics.recordRedisCommandDuration("pipeline_smembers_reverse_index", ProfitWorkerMetrics.RESULT_SUCCESS, sample);
+            metrics.recordRedisCommandDuration("pipeline_smembers_reverse_index", result, sample);
         }
     }
 
@@ -307,6 +315,7 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
     @Override
     public void bulkSetStockCurrentValues(Map<String, BigDecimal> updates) {
         Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
         try {
             redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
                 var stringCommands = connection.stringCommands();
@@ -315,8 +324,9 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
                         redisTemplate.getStringSerializer().serialize(toPlainString(value))));
                 return null;
             });
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
         } finally {
-            metrics.recordRedisCommandDuration("pipeline_set_stock_cvs", ProfitWorkerMetrics.RESULT_SUCCESS, sample);
+            metrics.recordRedisCommandDuration("pipeline_set_stock_cvs", result, sample);
         }
     }
 
