@@ -105,7 +105,8 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
                 }
                 return null;
             });
-            validatePipelineResultCount("bulkSavePortfolioValuations", valuations.size() * 2, results.size());
+            // HMSET returns status (not included in results by Spring), SADD returns Long
+            validatePipelineResultCount("bulkSavePortfolioValuations", valuations.size(), results.size());
             result = ProfitWorkerMetrics.RESULT_SUCCESS;
         } finally {
             metrics.recordRedisCommandDuration("pipeline_save_portfolio_valuations", result, sample);
@@ -139,7 +140,8 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
                 }
                 return null;
             });
-            validatePipelineResultCount("bulkSaveUserValuations", valuations.size() * 2, results.size());
+            // HMSET returns status (not included in results by Spring), SADD returns Long
+            validatePipelineResultCount("bulkSaveUserValuations", valuations.size(), results.size());
             result = ProfitWorkerMetrics.RESULT_SUCCESS;
         } finally {
             metrics.recordRedisCommandDuration("pipeline_save_user_valuations", result, sample);
