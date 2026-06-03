@@ -169,7 +169,7 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
                     userDeltaByUserId.merge(userId, delta, BigDecimal::add);
                 }
             }
-            valuationRepository.bulkSavePortfolioValuations(portfolioValuations);
+            valuationRepository.bulkSavePortfolioPriceUpdateValuations(portfolioValuations);
             metrics.recordPhaseDuration(
                     ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION,
                     ProfitWorkerMetrics.PHASE_PORTFOLIO_FANOUT,
@@ -217,7 +217,7 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
                     .portfolioCount(portfolioCount)
                     .build());
         }
-        valuationRepository.bulkSaveUserValuations(userValuations);
+        valuationRepository.bulkSaveUserPriceUpdateValuations(userValuations);
     }
 
     private Double calculateProfitRate(Long purchasedValue, BigDecimal currentValue) {

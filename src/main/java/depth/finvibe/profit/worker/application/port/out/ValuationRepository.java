@@ -37,7 +37,25 @@ public interface ValuationRepository {
     void bulkSavePortfolioValuations(List<PortfolioValuation> valuations);
 
     /**
+     * 가격 변경 이벤트에서 변경되는 필드만 사용해 여러 포트폴리오 평가 snapshot을 일괄 저장한다.
+     *
+     * <p>기본 구현은 전체 snapshot 저장으로 위임한다.</p>
+     */
+    default void bulkSavePortfolioPriceUpdateValuations(List<PortfolioValuation> valuations) {
+        bulkSavePortfolioValuations(valuations);
+    }
+
+    /**
      * 여러 유저 평가 snapshot을 일괄 저장한다 (pipeline).
      */
     void bulkSaveUserValuations(List<UserValuation> valuations);
+
+    /**
+     * 가격 변경 이벤트에서 변경되는 필드만 사용해 여러 유저 평가 snapshot을 일괄 저장한다.
+     *
+     * <p>기본 구현은 전체 snapshot 저장으로 위임한다.</p>
+     */
+    default void bulkSaveUserPriceUpdateValuations(List<UserValuation> valuations) {
+        bulkSaveUserValuations(valuations);
+    }
 }

@@ -82,34 +82,30 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
         Timer.Sample sample = metrics.startSample();
         String result = ProfitWorkerMetrics.RESULT_FAILURE;
         try {
-            Instant updatedAt = Instant.now();
-            String updatedAtStr = updatedAt.toString();
-            String dirtyKey = dirtyPortfolioValuationsKey();
-
-            List<Object> results = redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
-                var hashCommands = connection.hashCommands();
-                var setCommands = connection.setCommands();
-                byte[] dirtyKeyBytes = redisTemplate.getStringSerializer().serialize(dirtyKey);
-
-                for (PortfolioValuation v : valuations) {
-                    byte[] key = redisTemplate.getStringSerializer().serialize(portfolioHashKey(v.getPortfolioId()));
-                    hashCommands.hMSet(key, Map.of(
-                            redisTemplate.getStringSerializer().serialize("pv"), redisTemplate.getStringSerializer().serialize(String.valueOf(v.getPurchasedValue())),
-                            redisTemplate.getStringSerializer().serialize("cv"), redisTemplate.getStringSerializer().serialize(String.valueOf(v.getCurrentValue())),
-                            redisTemplate.getStringSerializer().serialize("pr"), redisTemplate.getStringSerializer().serialize(String.valueOf(v.getProfitRate())),
-                            redisTemplate.getStringSerializer().serialize("ac"), redisTemplate.getStringSerializer().serialize(String.valueOf(v.getAssetCount())),
-                            redisTemplate.getStringSerializer().serialize("del"), redisTemplate.getStringSerializer().serialize("0"),
-                            redisTemplate.getStringSerializer().serialize("ua"), redisTemplate.getStringSerializer().serialize(updatedAtStr)
-                    ));
-                    setCommands.sAdd(dirtyKeyBytes, redisTemplate.getStringSerializer().serialize(String.valueOf(v.getPortfolioId())));
-                }
-                return null;
-            });
-            // HMSET returns status (not included in results by Spring), SADD returns Long
-            validatePipelineResultCount("bulkSavePortfolioValuations", valuations.size(), results.size());
+            executePortfolioValuationPipeline(
+                    valuations,
+                    false,
+                    "bulkSavePortfolioValuations"
+            );
             result = ProfitWorkerMetrics.RESULT_SUCCESS;
         } finally {
             metrics.recordRedisCommandDuration("pipeline_save_portfolio_valuations", result, sample);
+        }
+    }
+
+    @Override
+    public void bulkSavePortfolioPriceUpdateValuations(List<PortfolioValuation> valuations) {
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
+        try {
+            executePortfolioValuationPipeline(
+                    valuations,
+                    true,
+                    "bulkSavePortfolioPriceUpdateValuations"
+            );
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
+        } finally {
+            metrics.recordRedisCommandDuration("pipeline_save_portfolio_price_updates", result, sample);
         }
     }
 
@@ -118,34 +114,122 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
         Timer.Sample sample = metrics.startSample();
         String result = ProfitWorkerMetrics.RESULT_FAILURE;
         try {
-            Instant updatedAt = Instant.now();
-            String updatedAtStr = updatedAt.toString();
-            String dirtyKey = dirtyUserValuationsKey();
-
-            List<Object> results = redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
-                var hashCommands = connection.hashCommands();
-                var setCommands = connection.setCommands();
-                byte[] dirtyKeyBytes = redisTemplate.getStringSerializer().serialize(dirtyKey);
-
-                for (UserValuation v : valuations) {
-                    byte[] key = redisTemplate.getStringSerializer().serialize(userHashKey(v.getUserId()));
-                    hashCommands.hMSet(key, Map.of(
-                            redisTemplate.getStringSerializer().serialize("pv"), redisTemplate.getStringSerializer().serialize(String.valueOf(v.getPurchasedValue())),
-                            redisTemplate.getStringSerializer().serialize("cv"), redisTemplate.getStringSerializer().serialize(String.valueOf(v.getCurrentValue())),
-                            redisTemplate.getStringSerializer().serialize("pr"), redisTemplate.getStringSerializer().serialize(String.valueOf(v.getProfitRate())),
-                            redisTemplate.getStringSerializer().serialize("pc"), redisTemplate.getStringSerializer().serialize(String.valueOf(v.getPortfolioCount())),
-                            redisTemplate.getStringSerializer().serialize("ua"), redisTemplate.getStringSerializer().serialize(updatedAtStr)
-                    ));
-                    setCommands.sAdd(dirtyKeyBytes, redisTemplate.getStringSerializer().serialize(v.getUserId()));
-                }
-                return null;
-            });
-            // HMSET returns status (not included in results by Spring), SADD returns Long
-            validatePipelineResultCount("bulkSaveUserValuations", valuations.size(), results.size());
+            executeUserValuationPipeline(
+                    valuations,
+                    false,
+                    "bulkSaveUserValuations"
+            );
             result = ProfitWorkerMetrics.RESULT_SUCCESS;
         } finally {
             metrics.recordRedisCommandDuration("pipeline_save_user_valuations", result, sample);
         }
+    }
+
+    @Override
+    public void bulkSaveUserPriceUpdateValuations(List<UserValuation> valuations) {
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
+        try {
+            executeUserValuationPipeline(
+                    valuations,
+                    true,
+                    "bulkSaveUserPriceUpdateValuations"
+            );
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
+        } finally {
+            metrics.recordRedisCommandDuration("pipeline_save_user_price_updates", result, sample);
+        }
+    }
+
+    private void executePortfolioValuationPipeline(
+            List<PortfolioValuation> valuations,
+            boolean priceUpdateOnly,
+            String operation
+    ) {
+        Instant updatedAt = Instant.now();
+        String updatedAtStr = updatedAt.toString();
+        String dirtyKey = dirtyPortfolioValuationsKey();
+
+        List<Object> results = redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
+            var hashCommands = connection.hashCommands();
+            var setCommands = connection.setCommands();
+            byte[] dirtyKeyBytes = redisTemplate.getStringSerializer().serialize(dirtyKey);
+
+            for (PortfolioValuation v : valuations) {
+                byte[] key = redisTemplate.getStringSerializer().serialize(portfolioHashKey(v.getPortfolioId()));
+                hashCommands.hMSet(key, portfolioFields(v, updatedAtStr, priceUpdateOnly));
+                setCommands.sAdd(dirtyKeyBytes, redisTemplate.getStringSerializer().serialize(String.valueOf(v.getPortfolioId())));
+            }
+            return null;
+        });
+
+        validatePipelineResultCount(operation, valuations.size(), results.size());
+    }
+
+    private void executeUserValuationPipeline(
+            List<UserValuation> valuations,
+            boolean priceUpdateOnly,
+            String operation
+    ) {
+        Instant updatedAt = Instant.now();
+        String updatedAtStr = updatedAt.toString();
+        String dirtyKey = dirtyUserValuationsKey();
+
+        List<Object> results = redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
+            var hashCommands = connection.hashCommands();
+            var setCommands = connection.setCommands();
+            byte[] dirtyKeyBytes = redisTemplate.getStringSerializer().serialize(dirtyKey);
+
+            for (UserValuation v : valuations) {
+                byte[] key = redisTemplate.getStringSerializer().serialize(userHashKey(v.getUserId()));
+                hashCommands.hMSet(key, userFields(v, updatedAtStr, priceUpdateOnly));
+                setCommands.sAdd(dirtyKeyBytes, redisTemplate.getStringSerializer().serialize(v.getUserId()));
+            }
+            return null;
+        });
+
+        validatePipelineResultCount(operation, valuations.size(), results.size());
+    }
+
+    private Map<byte[], byte[]> portfolioFields(PortfolioValuation valuation, String updatedAtStr, boolean priceUpdateOnly) {
+        if (priceUpdateOnly) {
+            return Map.of(
+                    serialize("cv"), serialize(String.valueOf(valuation.getCurrentValue())),
+                    serialize("pr"), serialize(String.valueOf(valuation.getProfitRate())),
+                    serialize("ua"), serialize(updatedAtStr)
+            );
+        }
+
+        return Map.of(
+                serialize("pv"), serialize(String.valueOf(valuation.getPurchasedValue())),
+                serialize("cv"), serialize(String.valueOf(valuation.getCurrentValue())),
+                serialize("pr"), serialize(String.valueOf(valuation.getProfitRate())),
+                serialize("ac"), serialize(String.valueOf(valuation.getAssetCount())),
+                serialize("del"), serialize("0"),
+                serialize("ua"), serialize(updatedAtStr)
+        );
+    }
+
+    private Map<byte[], byte[]> userFields(UserValuation valuation, String updatedAtStr, boolean priceUpdateOnly) {
+        if (priceUpdateOnly) {
+            return Map.of(
+                    serialize("cv"), serialize(String.valueOf(valuation.getCurrentValue())),
+                    serialize("pr"), serialize(String.valueOf(valuation.getProfitRate())),
+                    serialize("ua"), serialize(updatedAtStr)
+            );
+        }
+
+        return Map.of(
+                serialize("pv"), serialize(String.valueOf(valuation.getPurchasedValue())),
+                serialize("cv"), serialize(String.valueOf(valuation.getCurrentValue())),
+                serialize("pr"), serialize(String.valueOf(valuation.getProfitRate())),
+                serialize("pc"), serialize(String.valueOf(valuation.getPortfolioCount())),
+                serialize("ua"), serialize(updatedAtStr)
+        );
+    }
+
+    private byte[] serialize(String value) {
+        return redisTemplate.getStringSerializer().serialize(value);
     }
 
     private void hashPutAll(String key, Map<String, String> values) {

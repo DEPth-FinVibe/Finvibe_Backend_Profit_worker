@@ -175,6 +175,56 @@ class RedisMetricsTest {
     }
 
     @Test
+    void recordsPortfolioPriceUpdatePipelineMetric() {
+        TestMetricsFactory.MetricsFixture fixture = TestMetricsFactory.create();
+        SimpleMeterRegistry registry = fixture.registry();
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+
+        when(redisTemplate.executePipelined(isA(RedisCallback.class))).thenReturn(java.util.List.of(1L));
+
+        RedisValuationRepositoryAdapter repository = new RedisValuationRepositoryAdapter(redisTemplate, fixture.metrics());
+        repository.bulkSavePortfolioPriceUpdateValuations(java.util.List.of(
+                PortfolioValuation.builder()
+                        .portfolioId(1L)
+                        .purchasedValue(100L)
+                        .currentValue(150L)
+                        .profitRate(50.0)
+                        .assetCount(2L)
+                        .build()
+        ));
+
+        assertThat(registry.find(ProfitWorkerMetrics.REDIS_COMMAND_DURATION)
+                .tags(ProfitWorkerMetrics.TAG_COMMAND, "pipeline_save_portfolio_price_updates",
+                        ProfitWorkerMetrics.TAG_RESULT, ProfitWorkerMetrics.RESULT_SUCCESS)
+                .timer().count()).isEqualTo(1);
+    }
+
+    @Test
+    void recordsUserPriceUpdatePipelineMetric() {
+        TestMetricsFactory.MetricsFixture fixture = TestMetricsFactory.create();
+        SimpleMeterRegistry registry = fixture.registry();
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+
+        when(redisTemplate.executePipelined(isA(RedisCallback.class))).thenReturn(java.util.List.of(1L));
+
+        RedisValuationRepositoryAdapter repository = new RedisValuationRepositoryAdapter(redisTemplate, fixture.metrics());
+        repository.bulkSaveUserPriceUpdateValuations(java.util.List.of(
+                UserValuation.builder()
+                        .userId("user-1")
+                        .purchasedValue(100L)
+                        .currentValue(150L)
+                        .profitRate(50.0)
+                        .portfolioCount(2L)
+                        .build()
+        ));
+
+        assertThat(registry.find(ProfitWorkerMetrics.REDIS_COMMAND_DURATION)
+                .tags(ProfitWorkerMetrics.TAG_COMMAND, "pipeline_save_user_price_updates",
+                        ProfitWorkerMetrics.TAG_RESULT, ProfitWorkerMetrics.RESULT_SUCCESS)
+                .timer().count()).isEqualTo(1);
+    }
+
+    @Test
     void recordsPortfolioValuationFailureMetric() {
         TestMetricsFactory.MetricsFixture fixture = TestMetricsFactory.create();
         SimpleMeterRegistry registry = fixture.registry();

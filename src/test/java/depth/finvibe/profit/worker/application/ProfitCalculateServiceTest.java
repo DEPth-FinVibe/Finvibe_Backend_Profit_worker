@@ -77,6 +77,10 @@ class ProfitCalculateServiceTest {
         assertThat(portfolioStateStore.bulkIncrementAndFetchCalls).isEqualTo(1);
         assertThat(portfolioStateStore.bulkIncrementCalls).isZero();
         assertThat(portfolioStateStore.bulkFetchMetadataCalls).isZero();
+        assertThat(valuationRepository.bulkPortfolioPriceUpdateSaveCalls).isEqualTo(1);
+        assertThat(valuationRepository.bulkUserPriceUpdateSaveCalls).isEqualTo(1);
+        assertThat(valuationRepository.bulkPortfolioSaveCalls).isZero();
+        assertThat(valuationRepository.bulkUserSaveCalls).isZero();
         assertThat(registry.find(ProfitWorkerMetrics.AFFECTED_PORTFOLIOS)
                 .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION)
                 .summary().totalAmount()).isEqualTo(2.0);
@@ -393,6 +397,10 @@ class ProfitCalculateServiceTest {
         final Map<Long, PortfolioValuation> portfolioValuations = new ConcurrentHashMap<>();
         final Map<String, UserValuation> userValuations = new ConcurrentHashMap<>();
         final List<UserValuation> savedUserValuations = new ArrayList<>();
+        int bulkPortfolioSaveCalls;
+        int bulkUserSaveCalls;
+        int bulkPortfolioPriceUpdateSaveCalls;
+        int bulkUserPriceUpdateSaveCalls;
 
         @Override
         public void savePortfolioValuation(PortfolioValuation valuation) {
@@ -412,6 +420,7 @@ class ProfitCalculateServiceTest {
 
         @Override
         public void bulkSavePortfolioValuations(List<PortfolioValuation> valuations) {
+            bulkPortfolioSaveCalls++;
             for (PortfolioValuation v : valuations) {
                 portfolioValuations.put(v.getPortfolioId(), v);
             }
@@ -419,6 +428,24 @@ class ProfitCalculateServiceTest {
 
         @Override
         public void bulkSaveUserValuations(List<UserValuation> valuations) {
+            bulkUserSaveCalls++;
+            for (UserValuation v : valuations) {
+                userValuations.put(v.getUserId(), v);
+                savedUserValuations.add(v);
+            }
+        }
+
+        @Override
+        public void bulkSavePortfolioPriceUpdateValuations(List<PortfolioValuation> valuations) {
+            bulkPortfolioPriceUpdateSaveCalls++;
+            for (PortfolioValuation v : valuations) {
+                portfolioValuations.put(v.getPortfolioId(), v);
+            }
+        }
+
+        @Override
+        public void bulkSaveUserPriceUpdateValuations(List<UserValuation> valuations) {
+            bulkUserPriceUpdateSaveCalls++;
             for (UserValuation v : valuations) {
                 userValuations.put(v.getUserId(), v);
                 savedUserValuations.add(v);
