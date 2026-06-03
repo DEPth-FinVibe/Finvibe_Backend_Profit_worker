@@ -6,12 +6,15 @@ import depth.finvibe.profit.worker.domain.UserValuation;
 import depth.finvibe.profit.worker.support.TestMetricsFactory;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -20,6 +23,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class RedisMetricsTest {
@@ -141,5 +146,68 @@ class RedisMetricsTest {
                 .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_PORTFOLIO_VALUATION_SAVE,
                         ProfitWorkerMetrics.TAG_RESULT, ProfitWorkerMetrics.RESULT_FAILURE)
                 .timer().count()).isEqualTo(1);
+    }
+
+    @Test
+    void chunksBulkPortfolioValuationSavePipelines() {
+        TestMetricsFactory.MetricsFixture fixture = TestMetricsFactory.create();
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        RedisValuationRepositoryAdapter repository = new RedisValuationRepositoryAdapter(redisTemplate, fixture.metrics());
+        ReflectionTestUtils.setField(repository, "valuationSaveChunkSize", 2);
+
+        when(redisTemplate.executePipelined(any(RedisCallback.class)))
+                .thenReturn(List.of(1L, 1L))
+                .thenReturn(List.of(1L, 1L))
+                .thenReturn(List.of(1L));
+
+        repository.bulkSavePortfolioValuations(List.of(
+                portfolioValuation(1L),
+                portfolioValuation(2L),
+                portfolioValuation(3L),
+                portfolioValuation(4L),
+                portfolioValuation(5L)
+        ));
+
+        verify(redisTemplate, times(3)).executePipelined(any(RedisCallback.class));
+    }
+
+    @Test
+    void chunksBulkUserValuationSavePipelines() {
+        TestMetricsFactory.MetricsFixture fixture = TestMetricsFactory.create();
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        RedisValuationRepositoryAdapter repository = new RedisValuationRepositoryAdapter(redisTemplate, fixture.metrics());
+        ReflectionTestUtils.setField(repository, "valuationSaveChunkSize", 2);
+
+        when(redisTemplate.executePipelined(any(RedisCallback.class)))
+                .thenReturn(List.of(1L, 1L))
+                .thenReturn(List.of(1L));
+
+        repository.bulkSaveUserValuations(List.of(
+                userValuation("user-1"),
+                userValuation("user-2"),
+                userValuation("user-3")
+        ));
+
+        verify(redisTemplate, times(2)).executePipelined(any(RedisCallback.class));
+    }
+
+    private PortfolioValuation portfolioValuation(Long portfolioId) {
+        return PortfolioValuation.builder()
+                .portfolioId(portfolioId)
+                .purchasedValue(100L)
+                .currentValue(150L)
+                .profitRate(50.0)
+                .assetCount(2L)
+                .build();
+    }
+
+    private UserValuation userValuation(String userId) {
+        return UserValuation.builder()
+                .userId(userId)
+                .purchasedValue(100L)
+                .currentValue(150L)
+                .profitRate(50.0)
+                .portfolioCount(2L)
+                .build();
     }
 }

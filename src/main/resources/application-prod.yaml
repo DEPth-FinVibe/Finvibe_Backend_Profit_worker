@@ -46,6 +46,8 @@ app:
     recalculation:
       parallelism: ${PROFIT_RECALCULATION_PARALLELISM:4}
       queue-capacity: ${PROFIT_RECALCULATION_QUEUE_CAPACITY:256}
+    redis:
+      valuation-save-chunk-size: ${PROFIT_REDIS_VALUATION_SAVE_CHUNK_SIZE:500}
   kafka:
     topics:
       stock-price-updated: ${KAFKA_TOPIC_STOCK_PRICE_UPDATED:market.stock-price-updated.v1}
