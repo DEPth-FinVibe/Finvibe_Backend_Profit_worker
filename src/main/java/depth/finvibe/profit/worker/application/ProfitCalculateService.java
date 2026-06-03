@@ -7,6 +7,7 @@ import depth.finvibe.profit.worker.application.port.out.PortfolioStateStore.Stoc
 import depth.finvibe.profit.worker.application.port.out.PortfolioStateStore.StockHoldingKey;
 import depth.finvibe.profit.worker.application.port.out.UserStateStore;
 import depth.finvibe.profit.worker.application.port.out.UserStateStore.UserMetadata;
+import depth.finvibe.profit.worker.application.port.out.UserStateStore.UserStateSnapshot;
 import depth.finvibe.profit.worker.application.port.out.ValuationRepository;
 import depth.finvibe.profit.worker.domain.PortfolioValuation;
 import depth.finvibe.profit.worker.domain.UserValuation;
@@ -197,18 +198,14 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
     }
 
     private void recalculateUsersBulk(Map<String, BigDecimal> userDeltaByUserId) {
-        // Pipeline HINCRBYFLOAT per user — 원자적 평가액 갱신
-        Map<String, BigDecimal> newUserCVs = userStateStore.bulkIncrementCurrentValues(userDeltaByUserId);
-
-        // Pipeline HMGET — 유저 메타데이터 일괄 조회
         List<String> userIds = new ArrayList<>(userDeltaByUserId.keySet());
-        Map<String, UserMetadata> userMetadata = userStateStore.bulkFetchUserMetadata(userIds);
+        Map<String, UserStateSnapshot> userStates = userStateStore.bulkIncrementCurrentValuesAndFetchMetadata(userDeltaByUserId);
 
-        // 인메모리 빌드 + 파이프라인 저장
         List<UserValuation> userValuations = new ArrayList<>();
         for (String userId : userIds) {
-            UserMetadata meta = userMetadata.get(userId);
-            BigDecimal currentValue = newUserCVs.getOrDefault(userId, BigDecimal.ZERO);
+            UserStateSnapshot state = userStates.get(userId);
+            UserMetadata meta = state != null ? state.metadata() : null;
+            BigDecimal currentValue = state != null ? state.currentValue() : BigDecimal.ZERO;
             Long purchasedValue = meta != null ? meta.purchasedValue() : 0L;
             Long portfolioCount = meta != null ? meta.portfolioCount() : 0L;
 

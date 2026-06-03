@@ -172,6 +172,52 @@ public class RedisUserStateStore implements UserStateStore {
         }
     }
 
+    @Override
+    public Map<String, UserStateSnapshot> bulkIncrementCurrentValuesAndFetchMetadata(Map<String, BigDecimal> deltasByUserId) {
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
+        try {
+            List<String> userIds = new ArrayList<>(deltasByUserId.keySet());
+            List<Object> results = redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
+                var hashCommands = connection.hashCommands();
+                byte[] currentValueField = redisTemplate.getStringSerializer().serialize("cvp");
+                byte[] purchasedValueField = redisTemplate.getStringSerializer().serialize("pv");
+                byte[] portfolioCountField = redisTemplate.getStringSerializer().serialize("pc");
+
+                for (String userId : userIds) {
+                    byte[] key = redisTemplate.getStringSerializer().serialize(userHashKey(userId));
+                    BigDecimal delta = deltasByUserId.get(userId);
+                    hashCommands.hIncrBy(key, currentValueField, delta.doubleValue());
+                    hashCommands.hMGet(key, purchasedValueField, portfolioCountField);
+                }
+                return null;
+            });
+
+            validatePipelineResultCount("bulkIncrementCurrentValuesAndFetchMetadata(user)", userIds.size() * 2, results.size());
+
+            Map<String, UserStateSnapshot> resultMap = new HashMap<>();
+            for (int i = 0; i < userIds.size(); i++) {
+                Object currentValueRaw = results.get(i * 2);
+                @SuppressWarnings("unchecked")
+                List<Object> metadataFields = (List<Object>) results.get(i * 2 + 1);
+
+                BigDecimal currentValue = currentValueRaw == null
+                        ? BigDecimal.ZERO
+                        : BigDecimal.valueOf(((Number) currentValueRaw).doubleValue());
+                UserMetadata metadata = new UserMetadata(
+                        parseNullableLong(metadataFields.get(0)),
+                        parseNullableLong(metadataFields.get(1))
+                );
+                resultMap.put(userIds.get(i), new UserStateSnapshot(currentValue, metadata));
+            }
+
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
+            return resultMap;
+        } finally {
+            metrics.recordRedisCommandDuration("pipeline_hincrbyfloat_hmget_user", result, sample);
+        }
+    }
+
     private Long parseNullableLong(Object value) {
         if (value == null) return 0L;
         return Long.valueOf(value.toString());

@@ -1,11 +1,13 @@
 package depth.finvibe.profit.worker.infrastructure.redis;
 
 import depth.finvibe.profit.worker.application.ProfitWorkerMetrics;
+import depth.finvibe.profit.worker.application.port.out.UserStateStore;
 import depth.finvibe.profit.worker.domain.PortfolioValuation;
 import depth.finvibe.profit.worker.domain.UserValuation;
 import depth.finvibe.profit.worker.support.TestMetricsFactory;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -18,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.isA;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -61,6 +64,32 @@ class RedisMetricsTest {
         assertThat(store.calculateCurrentValue("user-1")).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(registry.find(ProfitWorkerMetrics.REDIS_OPERATION_DURATION)
                 .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_USER_CURRENT_VALUE,
+                        ProfitWorkerMetrics.TAG_RESULT, ProfitWorkerMetrics.RESULT_SUCCESS)
+                .timer().count()).isEqualTo(1);
+    }
+
+    @Test
+    void mergesUserCurrentValueIncrementAndMetadataFetchIntoSinglePipeline() {
+        TestMetricsFactory.MetricsFixture fixture = TestMetricsFactory.create();
+        SimpleMeterRegistry registry = fixture.registry();
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+
+        when(redisTemplate.executePipelined(isA(RedisCallback.class))).thenReturn(java.util.List.of(
+                2200.0d,
+                java.util.List.of("2000", "2")
+        ));
+
+        RedisUserStateStore store = new RedisUserStateStore(redisTemplate, fixture.metrics());
+
+        Map<String, UserStateStore.UserStateSnapshot> result = store.bulkIncrementCurrentValuesAndFetchMetadata(Map.of(
+                "user-1", new BigDecimal("200")
+        ));
+
+        assertThat(result.get("user-1").currentValue()).isEqualByComparingTo(new BigDecimal("2200.0"));
+        assertThat(result.get("user-1").metadata().purchasedValue()).isEqualTo(2000L);
+        assertThat(result.get("user-1").metadata().portfolioCount()).isEqualTo(2L);
+        assertThat(registry.find(ProfitWorkerMetrics.REDIS_COMMAND_DURATION)
+                .tags(ProfitWorkerMetrics.TAG_COMMAND, "pipeline_hincrbyfloat_hmget_user",
                         ProfitWorkerMetrics.TAG_RESULT, ProfitWorkerMetrics.RESULT_SUCCESS)
                 .timer().count()).isEqualTo(1);
     }

@@ -71,6 +71,9 @@ class ProfitCalculateServiceTest {
         assertThat(userValuation.getCurrentValue()).isEqualTo(2_200L);
         assertThat(userValuation.getProfitRate()).isEqualTo(10.0);
         assertThat(userValuation.getPortfolioCount()).isEqualTo(2L);
+        assertThat(userStateStore.bulkIncrementAndFetchCalls).isEqualTo(1);
+        assertThat(userStateStore.bulkIncrementCalls).isZero();
+        assertThat(userStateStore.bulkFetchMetadataCalls).isZero();
         assertThat(registry.find(ProfitWorkerMetrics.AFFECTED_PORTFOLIOS)
                 .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION)
                 .summary().totalAmount()).isEqualTo(2.0);
@@ -279,6 +282,9 @@ class ProfitCalculateServiceTest {
 
         final Map<String, UserMetadata> userMetadata = new HashMap<>();
         final Map<String, BigDecimal> currentValues = new HashMap<>();
+        int bulkFetchMetadataCalls;
+        int bulkIncrementCalls;
+        int bulkIncrementAndFetchCalls;
 
         @Override
         public String findUserIdByPortfolioId(Long portfolioId) { throw new UnsupportedOperationException(); }
@@ -314,6 +320,7 @@ class ProfitCalculateServiceTest {
 
         @Override
         public Map<String, UserMetadata> bulkFetchUserMetadata(List<String> userIds) {
+            bulkFetchMetadataCalls++;
             Map<String, UserMetadata> result = new HashMap<>();
             for (String id : userIds) {
                 UserMetadata meta = userMetadata.get(id);
@@ -326,11 +333,25 @@ class ProfitCalculateServiceTest {
 
         @Override
         public Map<String, BigDecimal> bulkIncrementCurrentValues(Map<String, BigDecimal> deltasByUserId) {
+            bulkIncrementCalls++;
             Map<String, BigDecimal> result = new HashMap<>();
             for (var entry : deltasByUserId.entrySet()) {
                 BigDecimal newValue = currentValues.getOrDefault(entry.getKey(), BigDecimal.ZERO).add(entry.getValue());
                 currentValues.put(entry.getKey(), newValue);
                 result.put(entry.getKey(), newValue);
+            }
+            return result;
+        }
+
+        @Override
+        public Map<String, UserStateSnapshot> bulkIncrementCurrentValuesAndFetchMetadata(Map<String, BigDecimal> deltasByUserId) {
+            bulkIncrementAndFetchCalls++;
+            Map<String, UserStateSnapshot> result = new HashMap<>();
+            for (var entry : deltasByUserId.entrySet()) {
+                String userId = entry.getKey();
+                BigDecimal newValue = currentValues.getOrDefault(userId, BigDecimal.ZERO).add(entry.getValue());
+                currentValues.put(userId, newValue);
+                result.put(userId, new UserStateSnapshot(newValue, userMetadata.get(userId)));
             }
             return result;
         }

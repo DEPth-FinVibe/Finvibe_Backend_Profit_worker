@@ -119,6 +119,31 @@ public interface UserStateStore {
      */
     Map<String, BigDecimal> bulkIncrementCurrentValues(Map<String, BigDecimal> deltasByUserId);
 
+    /**
+     * 여러 유저의 현재 평가액에 delta를 반영하고 메타데이터를 함께 조회한다.
+     *
+     * <p>기본 구현은 기존 bulk API 둘을 순차 호출한다. Redis adapter는 단일 pipeline으로 최적화할 수 있다.</p>
+     *
+     * @param deltasByUserId userId → delta 매핑
+     * @return userId → 반영 후 평가액과 메타데이터 매핑
+     */
+    default Map<String, UserStateSnapshot> bulkIncrementCurrentValuesAndFetchMetadata(Map<String, BigDecimal> deltasByUserId) {
+        Map<String, BigDecimal> currentValues = bulkIncrementCurrentValues(deltasByUserId);
+        Map<String, UserMetadata> metadata = bulkFetchUserMetadata(List.copyOf(deltasByUserId.keySet()));
+
+        Map<String, UserStateSnapshot> result = new java.util.HashMap<>();
+        for (String userId : deltasByUserId.keySet()) {
+            result.put(userId, new UserStateSnapshot(
+                    currentValues.getOrDefault(userId, BigDecimal.ZERO),
+                    metadata.get(userId)
+            ));
+        }
+        return result;
+    }
+
     record UserMetadata(Long purchasedValue, Long portfolioCount) {
+    }
+
+    record UserStateSnapshot(BigDecimal currentValue, UserMetadata metadata) {
     }
 }
