@@ -3,6 +3,7 @@ package depth.finvibe.profit.worker.application;
 import depth.finvibe.profit.worker.application.port.in.ProfitCalculationUseCase;
 import depth.finvibe.profit.worker.application.port.out.PortfolioStateStore;
 import depth.finvibe.profit.worker.application.port.out.PortfolioStateStore.PortfolioMetadata;
+import depth.finvibe.profit.worker.application.port.out.PortfolioStateStore.PortfolioStateSnapshot;
 import depth.finvibe.profit.worker.application.port.out.PortfolioStateStore.StockHolding;
 import depth.finvibe.profit.worker.application.port.out.PortfolioStateStore.StockHoldingKey;
 import depth.finvibe.profit.worker.application.port.out.UserStateStore;
@@ -77,14 +78,12 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
                 return;
             }
 
-            // Phase 2: 벌크 프리패치 — 모든 포트폴리오 메타데이터 + 종목 보유 정보를 파이프라인으로 일괄 조회
+            // Phase 2: 벌크 프리패치 — 종목 보유 정보를 파이프라인으로 일괄 조회
             Timer.Sample prefetchSample = metrics.startSample();
-            List<Long> portfolioIds = tasks.stream().map(PortfolioRecalculationTask::portfolioId).distinct().toList();
             List<StockHoldingKey> holdingKeys = tasks.stream()
                     .map(t -> new StockHoldingKey(t.portfolioId(), t.stockId()))
                     .toList();
 
-            Map<Long, PortfolioMetadata> portfolioMetadata = portfolioStateStore.bulkFetchPortfolioMetadata(portfolioIds);
             Map<String, StockHolding> stockHoldings = portfolioStateStore.bulkFetchStockHoldings(holdingKeys);
             metrics.recordPhaseDuration(
                     ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION,
@@ -122,9 +121,9 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
 
             // Phase 4: 파이프라인 HINCRBYFLOAT — 포트폴리오 평가액 원자적 갱신
             Timer.Sample portfolioIncrSample = metrics.startSample();
-            Map<Long, BigDecimal> newPortfolioCVs = portfolioDeltaSum.isEmpty()
+            Map<Long, PortfolioStateSnapshot> portfolioStates = portfolioDeltaSum.isEmpty()
                     ? Map.of()
-                    : portfolioStateStore.bulkIncrementCurrentValues(portfolioDeltaSum);
+                    : portfolioStateStore.bulkIncrementCurrentValuesAndFetchMetadata(portfolioDeltaSum);
             metrics.recordPhaseDuration(
                     ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION,
                     "pipeline_portfolio_incr",
@@ -150,8 +149,9 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
             List<PortfolioValuation> portfolioValuations = new ArrayList<>();
 
             for (Long portfolioId : portfolioDeltaSum.keySet()) {
-                PortfolioMetadata meta = portfolioMetadata.get(portfolioId);
-                BigDecimal newCV = newPortfolioCVs.getOrDefault(portfolioId, meta != null ? meta.currentValue() : BigDecimal.ZERO);
+                PortfolioStateSnapshot state = portfolioStates.get(portfolioId);
+                PortfolioMetadata meta = state != null ? state.metadata() : null;
+                BigDecimal newCV = state != null ? state.currentValue() : BigDecimal.ZERO;
                 Long purchasedValue = meta != null ? meta.purchasedValue() : 0L;
                 Long assetCount = meta != null ? meta.assetCount() : 0L;
                 String userId = meta != null ? meta.userId() : null;

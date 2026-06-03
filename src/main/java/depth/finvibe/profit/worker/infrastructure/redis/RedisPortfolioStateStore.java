@@ -273,6 +273,55 @@ public class RedisPortfolioStateStore implements PortfolioStateStore {
     }
 
     @Override
+    public Map<Long, PortfolioStateSnapshot> bulkIncrementCurrentValuesAndFetchMetadata(Map<Long, BigDecimal> deltasByPortfolioId) {
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
+        try {
+            List<Long> portfolioIds = new ArrayList<>(deltasByPortfolioId.keySet());
+            List<Object> results = redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
+                var hashCommands = connection.hashCommands();
+                byte[] currentValueField = redisTemplate.getStringSerializer().serialize(PRECISE_CURRENT_VALUE_FIELD);
+                byte[] purchasedValueField = redisTemplate.getStringSerializer().serialize("pv");
+                byte[] assetCountField = redisTemplate.getStringSerializer().serialize("ac");
+                byte[] userIdField = redisTemplate.getStringSerializer().serialize("u");
+
+                for (Long portfolioId : portfolioIds) {
+                    byte[] key = redisTemplate.getStringSerializer().serialize(portfolioHashKey(portfolioId));
+                    BigDecimal delta = deltasByPortfolioId.get(portfolioId);
+                    hashCommands.hIncrBy(key, currentValueField, delta.doubleValue());
+                    hashCommands.hMGet(key, purchasedValueField, assetCountField, userIdField);
+                }
+                return null;
+            });
+
+            validatePipelineResultCount("bulkIncrementCurrentValuesAndFetchMetadata(portfolio)", portfolioIds.size() * 2, results.size());
+
+            Map<Long, PortfolioStateSnapshot> resultMap = new HashMap<>();
+            for (int i = 0; i < portfolioIds.size(); i++) {
+                Object currentValueRaw = results.get(i * 2);
+                @SuppressWarnings("unchecked")
+                List<Object> metadataFields = (List<Object>) results.get(i * 2 + 1);
+
+                BigDecimal currentValue = currentValueRaw == null
+                        ? BigDecimal.ZERO
+                        : BigDecimal.valueOf(((Number) currentValueRaw).doubleValue());
+                PortfolioMetadata metadata = new PortfolioMetadata(
+                        parseNullableLong(metadataFields.get(0)),
+                        parseNullableLong(metadataFields.get(1)),
+                        metadataFields.get(2) == null ? null : metadataFields.get(2).toString(),
+                        currentValue
+                );
+                resultMap.put(portfolioIds.get(i), new PortfolioStateSnapshot(currentValue, metadata));
+            }
+
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
+            return resultMap;
+        } finally {
+            metrics.recordRedisCommandDuration("pipeline_hincrbyfloat_hmget_portfolio", result, sample);
+        }
+    }
+
+    @Override
     public Map<Long, List<Long>> bulkFindPortfolioIdsByStockIds(List<Long> stockIds) {
         Timer.Sample sample = metrics.startSample();
         String result = ProfitWorkerMetrics.RESULT_FAILURE;

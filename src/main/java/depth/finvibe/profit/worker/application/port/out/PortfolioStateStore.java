@@ -184,6 +184,28 @@ public interface PortfolioStateStore {
     Map<Long, BigDecimal> bulkIncrementCurrentValues(Map<Long, BigDecimal> deltasByPortfolioId);
 
     /**
+     * 여러 포트폴리오의 현재 평가액에 delta를 반영하고 메타데이터를 함께 조회한다.
+     *
+     * <p>기본 구현은 기존 bulk API 둘을 순차 호출한다. Redis adapter는 단일 pipeline으로 최적화할 수 있다.</p>
+     *
+     * @param deltasByPortfolioId portfolioId → delta 매핑
+     * @return portfolioId → 반영 후 평가액과 메타데이터 매핑
+     */
+    default Map<Long, PortfolioStateSnapshot> bulkIncrementCurrentValuesAndFetchMetadata(Map<Long, BigDecimal> deltasByPortfolioId) {
+        Map<Long, BigDecimal> currentValues = bulkIncrementCurrentValues(deltasByPortfolioId);
+        Map<Long, PortfolioMetadata> metadata = bulkFetchPortfolioMetadata(List.copyOf(deltasByPortfolioId.keySet()));
+
+        Map<Long, PortfolioStateSnapshot> result = new java.util.HashMap<>();
+        for (Long portfolioId : deltasByPortfolioId.keySet()) {
+            result.put(portfolioId, new PortfolioStateSnapshot(
+                    currentValues.getOrDefault(portfolioId, BigDecimal.ZERO),
+                    metadata.get(portfolioId)
+            ));
+        }
+        return result;
+    }
+
+    /**
      * 여러 종목에 대해 해당 종목을 보유한 포트폴리오 ID 목록을 일괄 조회한다 (pipeline SMEMBERS).
      *
      * @param stockIds 종목 ID 목록
@@ -204,6 +226,9 @@ public interface PortfolioStateStore {
     }
 
     record PortfolioMetadata(Long purchasedValue, Long assetCount, String userId, BigDecimal currentValue) {
+    }
+
+    record PortfolioStateSnapshot(BigDecimal currentValue, PortfolioMetadata metadata) {
     }
 
     record StockHolding(BigDecimal quantity, BigDecimal currentValue) {

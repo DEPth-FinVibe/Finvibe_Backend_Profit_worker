@@ -1,6 +1,7 @@
 package depth.finvibe.profit.worker.infrastructure.redis;
 
 import depth.finvibe.profit.worker.application.ProfitWorkerMetrics;
+import depth.finvibe.profit.worker.application.port.out.PortfolioStateStore;
 import depth.finvibe.profit.worker.application.port.out.UserStateStore;
 import depth.finvibe.profit.worker.domain.PortfolioValuation;
 import depth.finvibe.profit.worker.domain.UserValuation;
@@ -64,6 +65,33 @@ class RedisMetricsTest {
         assertThat(store.calculateCurrentValue("user-1")).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(registry.find(ProfitWorkerMetrics.REDIS_OPERATION_DURATION)
                 .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_USER_CURRENT_VALUE,
+                        ProfitWorkerMetrics.TAG_RESULT, ProfitWorkerMetrics.RESULT_SUCCESS)
+                .timer().count()).isEqualTo(1);
+    }
+
+    @Test
+    void mergesPortfolioCurrentValueIncrementAndMetadataFetchIntoSinglePipeline() {
+        TestMetricsFactory.MetricsFixture fixture = TestMetricsFactory.create();
+        SimpleMeterRegistry registry = fixture.registry();
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+
+        when(redisTemplate.executePipelined(isA(RedisCallback.class))).thenReturn(java.util.List.of(
+                1500.0d,
+                java.util.List.of("1000", "2", "user-1")
+        ));
+
+        RedisPortfolioStateStore store = new RedisPortfolioStateStore(redisTemplate, fixture.metrics());
+
+        Map<Long, PortfolioStateStore.PortfolioStateSnapshot> result = store.bulkIncrementCurrentValuesAndFetchMetadata(Map.of(
+                1L, new BigDecimal("500")
+        ));
+
+        assertThat(result.get(1L).currentValue()).isEqualByComparingTo(new BigDecimal("1500.0"));
+        assertThat(result.get(1L).metadata().purchasedValue()).isEqualTo(1000L);
+        assertThat(result.get(1L).metadata().assetCount()).isEqualTo(2L);
+        assertThat(result.get(1L).metadata().userId()).isEqualTo("user-1");
+        assertThat(registry.find(ProfitWorkerMetrics.REDIS_COMMAND_DURATION)
+                .tags(ProfitWorkerMetrics.TAG_COMMAND, "pipeline_hincrbyfloat_hmget_portfolio",
                         ProfitWorkerMetrics.TAG_RESULT, ProfitWorkerMetrics.RESULT_SUCCESS)
                 .timer().count()).isEqualTo(1);
     }

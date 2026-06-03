@@ -74,6 +74,9 @@ class ProfitCalculateServiceTest {
         assertThat(userStateStore.bulkIncrementAndFetchCalls).isEqualTo(1);
         assertThat(userStateStore.bulkIncrementCalls).isZero();
         assertThat(userStateStore.bulkFetchMetadataCalls).isZero();
+        assertThat(portfolioStateStore.bulkIncrementAndFetchCalls).isEqualTo(1);
+        assertThat(portfolioStateStore.bulkIncrementCalls).isZero();
+        assertThat(portfolioStateStore.bulkFetchMetadataCalls).isZero();
         assertThat(registry.find(ProfitWorkerMetrics.AFFECTED_PORTFOLIOS)
                 .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION)
                 .summary().totalAmount()).isEqualTo(2.0);
@@ -173,6 +176,9 @@ class ProfitCalculateServiceTest {
         final Map<Long, PortfolioMetadata> portfolioMetadata = new HashMap<>();
         final Map<String, StockHolding> stockHoldings = new HashMap<>();
         final Map<Long, BigDecimal> currentValues = new HashMap<>();
+        int bulkFetchMetadataCalls;
+        int bulkIncrementCalls;
+        int bulkIncrementAndFetchCalls;
 
         @Override
         public List<Long> findPortfolioIdsByStockId(Long stockId) {
@@ -209,6 +215,7 @@ class ProfitCalculateServiceTest {
 
         @Override
         public Map<Long, PortfolioMetadata> bulkFetchPortfolioMetadata(List<Long> portfolioIds) {
+            bulkFetchMetadataCalls++;
             Map<Long, PortfolioMetadata> result = new HashMap<>();
             for (Long id : portfolioIds) {
                 PortfolioMetadata meta = portfolioMetadata.get(id);
@@ -233,6 +240,7 @@ class ProfitCalculateServiceTest {
 
         @Override
         public Map<Long, BigDecimal> bulkIncrementCurrentValues(Map<Long, BigDecimal> deltasByPortfolioId) {
+            bulkIncrementCalls++;
             Map<Long, BigDecimal> result = new HashMap<>();
             for (var entry : deltasByPortfolioId.entrySet()) {
                 Long portfolioId = entry.getKey();
@@ -242,6 +250,22 @@ class ProfitCalculateServiceTest {
                 BigDecimal newCV = oldCV.add(delta);
                 currentValues.put(portfolioId, newCV);
                 result.put(portfolioId, newCV);
+            }
+            return result;
+        }
+
+        @Override
+        public Map<Long, PortfolioStateSnapshot> bulkIncrementCurrentValuesAndFetchMetadata(Map<Long, BigDecimal> deltasByPortfolioId) {
+            bulkIncrementAndFetchCalls++;
+            Map<Long, PortfolioStateSnapshot> result = new HashMap<>();
+            for (var entry : deltasByPortfolioId.entrySet()) {
+                Long portfolioId = entry.getKey();
+                BigDecimal delta = entry.getValue();
+                PortfolioMetadata meta = portfolioMetadata.get(portfolioId);
+                BigDecimal oldCV = meta != null ? meta.currentValue() : BigDecimal.ZERO;
+                BigDecimal newCV = oldCV.add(delta);
+                currentValues.put(portfolioId, newCV);
+                result.put(portfolioId, new PortfolioStateSnapshot(newCV, meta));
             }
             return result;
         }
