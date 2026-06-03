@@ -6,7 +6,6 @@ import depth.finvibe.profit.worker.domain.PortfolioValuation;
 import depth.finvibe.profit.worker.domain.UserValuation;
 import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -20,9 +19,6 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
 
     private final StringRedisTemplate redisTemplate;
     private final ProfitWorkerMetrics metrics;
-
-    @Value("${app.profit.redis.valuation-save-chunk-size:500}")
-    private int valuationSaveChunkSize;
 
     @Override
     public void savePortfolioValuation(PortfolioValuation valuation) {
@@ -88,9 +84,29 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
         try {
             Instant updatedAt = Instant.now();
             String updatedAtStr = updatedAt.toString();
-            for (List<PortfolioValuation> chunk : chunks(valuations)) {
-                savePortfolioValuationChunk(chunk, updatedAtStr);
-            }
+            String dirtyKey = dirtyPortfolioValuationsKey();
+
+            List<Object> results = redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
+                var hashCommands = connection.hashCommands();
+                var setCommands = connection.setCommands();
+                byte[] dirtyKeyBytes = redisTemplate.getStringSerializer().serialize(dirtyKey);
+
+                for (PortfolioValuation v : valuations) {
+                    byte[] key = redisTemplate.getStringSerializer().serialize(portfolioHashKey(v.getPortfolioId()));
+                    hashCommands.hMSet(key, Map.of(
+                            redisTemplate.getStringSerializer().serialize("pv"), redisTemplate.getStringSerializer().serialize(String.valueOf(v.getPurchasedValue())),
+                            redisTemplate.getStringSerializer().serialize("cv"), redisTemplate.getStringSerializer().serialize(String.valueOf(v.getCurrentValue())),
+                            redisTemplate.getStringSerializer().serialize("pr"), redisTemplate.getStringSerializer().serialize(String.valueOf(v.getProfitRate())),
+                            redisTemplate.getStringSerializer().serialize("ac"), redisTemplate.getStringSerializer().serialize(String.valueOf(v.getAssetCount())),
+                            redisTemplate.getStringSerializer().serialize("del"), redisTemplate.getStringSerializer().serialize("0"),
+                            redisTemplate.getStringSerializer().serialize("ua"), redisTemplate.getStringSerializer().serialize(updatedAtStr)
+                    ));
+                    setCommands.sAdd(dirtyKeyBytes, redisTemplate.getStringSerializer().serialize(String.valueOf(v.getPortfolioId())));
+                }
+                return null;
+            });
+            // HMSET returns status (not included in results by Spring), SADD returns Long
+            validatePipelineResultCount("bulkSavePortfolioValuations", valuations.size(), results.size());
             result = ProfitWorkerMetrics.RESULT_SUCCESS;
         } finally {
             metrics.recordRedisCommandDuration("pipeline_save_portfolio_valuations", result, sample);
@@ -104,62 +120,32 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
         try {
             Instant updatedAt = Instant.now();
             String updatedAtStr = updatedAt.toString();
-            for (List<UserValuation> chunk : chunks(valuations)) {
-                saveUserValuationChunk(chunk, updatedAtStr);
-            }
+            String dirtyKey = dirtyUserValuationsKey();
+
+            List<Object> results = redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
+                var hashCommands = connection.hashCommands();
+                var setCommands = connection.setCommands();
+                byte[] dirtyKeyBytes = redisTemplate.getStringSerializer().serialize(dirtyKey);
+
+                for (UserValuation v : valuations) {
+                    byte[] key = redisTemplate.getStringSerializer().serialize(userHashKey(v.getUserId()));
+                    hashCommands.hMSet(key, Map.of(
+                            redisTemplate.getStringSerializer().serialize("pv"), redisTemplate.getStringSerializer().serialize(String.valueOf(v.getPurchasedValue())),
+                            redisTemplate.getStringSerializer().serialize("cv"), redisTemplate.getStringSerializer().serialize(String.valueOf(v.getCurrentValue())),
+                            redisTemplate.getStringSerializer().serialize("pr"), redisTemplate.getStringSerializer().serialize(String.valueOf(v.getProfitRate())),
+                            redisTemplate.getStringSerializer().serialize("pc"), redisTemplate.getStringSerializer().serialize(String.valueOf(v.getPortfolioCount())),
+                            redisTemplate.getStringSerializer().serialize("ua"), redisTemplate.getStringSerializer().serialize(updatedAtStr)
+                    ));
+                    setCommands.sAdd(dirtyKeyBytes, redisTemplate.getStringSerializer().serialize(v.getUserId()));
+                }
+                return null;
+            });
+            // HMSET returns status (not included in results by Spring), SADD returns Long
+            validatePipelineResultCount("bulkSaveUserValuations", valuations.size(), results.size());
             result = ProfitWorkerMetrics.RESULT_SUCCESS;
         } finally {
             metrics.recordRedisCommandDuration("pipeline_save_user_valuations", result, sample);
         }
-    }
-
-    private void savePortfolioValuationChunk(List<PortfolioValuation> valuations, String updatedAtStr) {
-        String dirtyKey = dirtyPortfolioValuationsKey();
-        List<Object> results = redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
-            var hashCommands = connection.hashCommands();
-            var setCommands = connection.setCommands();
-            byte[] dirtyKeyBytes = redisTemplate.getStringSerializer().serialize(dirtyKey);
-
-            for (PortfolioValuation v : valuations) {
-                byte[] key = redisTemplate.getStringSerializer().serialize(portfolioHashKey(v.getPortfolioId()));
-                hashCommands.hMSet(key, Map.of(
-                        redisTemplate.getStringSerializer().serialize("pv"), redisTemplate.getStringSerializer().serialize(String.valueOf(v.getPurchasedValue())),
-                        redisTemplate.getStringSerializer().serialize("cv"), redisTemplate.getStringSerializer().serialize(String.valueOf(v.getCurrentValue())),
-                        redisTemplate.getStringSerializer().serialize("pr"), redisTemplate.getStringSerializer().serialize(String.valueOf(v.getProfitRate())),
-                        redisTemplate.getStringSerializer().serialize("ac"), redisTemplate.getStringSerializer().serialize(String.valueOf(v.getAssetCount())),
-                        redisTemplate.getStringSerializer().serialize("del"), redisTemplate.getStringSerializer().serialize("0"),
-                        redisTemplate.getStringSerializer().serialize("ua"), redisTemplate.getStringSerializer().serialize(updatedAtStr)
-                ));
-                setCommands.sAdd(dirtyKeyBytes, redisTemplate.getStringSerializer().serialize(String.valueOf(v.getPortfolioId())));
-            }
-            return null;
-        });
-        // HMSET returns status (not included in results by Spring), SADD returns Long
-        validatePipelineResultCount("bulkSavePortfolioValuations", valuations.size(), results.size());
-    }
-
-    private void saveUserValuationChunk(List<UserValuation> valuations, String updatedAtStr) {
-        String dirtyKey = dirtyUserValuationsKey();
-        List<Object> results = redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
-            var hashCommands = connection.hashCommands();
-            var setCommands = connection.setCommands();
-            byte[] dirtyKeyBytes = redisTemplate.getStringSerializer().serialize(dirtyKey);
-
-            for (UserValuation v : valuations) {
-                byte[] key = redisTemplate.getStringSerializer().serialize(userHashKey(v.getUserId()));
-                hashCommands.hMSet(key, Map.of(
-                        redisTemplate.getStringSerializer().serialize("pv"), redisTemplate.getStringSerializer().serialize(String.valueOf(v.getPurchasedValue())),
-                        redisTemplate.getStringSerializer().serialize("cv"), redisTemplate.getStringSerializer().serialize(String.valueOf(v.getCurrentValue())),
-                        redisTemplate.getStringSerializer().serialize("pr"), redisTemplate.getStringSerializer().serialize(String.valueOf(v.getProfitRate())),
-                        redisTemplate.getStringSerializer().serialize("pc"), redisTemplate.getStringSerializer().serialize(String.valueOf(v.getPortfolioCount())),
-                        redisTemplate.getStringSerializer().serialize("ua"), redisTemplate.getStringSerializer().serialize(updatedAtStr)
-                ));
-                setCommands.sAdd(dirtyKeyBytes, redisTemplate.getStringSerializer().serialize(v.getUserId()));
-            }
-            return null;
-        });
-        // HMSET returns status (not included in results by Spring), SADD returns Long
-        validatePipelineResultCount("bulkSaveUserValuations", valuations.size(), results.size());
     }
 
     private void hashPutAll(String key, Map<String, String> values) {
@@ -202,23 +188,6 @@ public class RedisValuationRepositoryAdapter implements ValuationRepository {
 
     private String userHashKey(String userId) {
         return "usr:" + userId;
-    }
-
-    private <T> List<List<T>> chunks(List<T> values) {
-        if (values == null || values.isEmpty()) {
-            return List.of();
-        }
-
-        int chunkSize = Math.max(1, valuationSaveChunkSize);
-        if (values.size() <= chunkSize) {
-            return List.of(values);
-        }
-
-        java.util.ArrayList<List<T>> chunks = new java.util.ArrayList<>((values.size() + chunkSize - 1) / chunkSize);
-        for (int start = 0; start < values.size(); start += chunkSize) {
-            chunks.add(values.subList(start, Math.min(start + chunkSize, values.size())));
-        }
-        return chunks;
     }
 
     private void validatePipelineResultCount(String operation, int expected, int actual) {
