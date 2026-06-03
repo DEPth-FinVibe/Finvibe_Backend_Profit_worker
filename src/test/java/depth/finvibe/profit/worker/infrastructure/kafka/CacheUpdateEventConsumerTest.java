@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -38,11 +39,11 @@ class CacheUpdateEventConsumerTest {
                 }
                 """));
 
-        ArgumentCaptor<CacheUpdateDto.PortfolioCacheUpdateRequest> captor =
-                ArgumentCaptor.forClass(CacheUpdateDto.PortfolioCacheUpdateRequest.class);
-        verify(cacheUpdateUseCase).updatePortfolioCache(captor.capture());
+        ArgumentCaptor<List<CacheUpdateDto.PortfolioCacheUpdateRequest>> captor =
+                ArgumentCaptor.forClass(List.class);
+        verify(cacheUpdateUseCase).updatePortfolioCaches(captor.capture());
 
-        CacheUpdateDto.PortfolioCacheUpdateRequest request = captor.getValue();
+        CacheUpdateDto.PortfolioCacheUpdateRequest request = captor.getValue().getFirst();
         assertThat(request.getPortfolioId()).isEqualTo(456L);
         assertThat(request.getStockId()).isEqualTo(123L);
         assertThat(request.getType()).isEqualTo(CacheUpdateDto.PortfolioCacheUpdateRequest.TradeType.STOCK_BUY);
@@ -71,10 +72,10 @@ class CacheUpdateEventConsumerTest {
                 }
                 """));
 
-        ArgumentCaptor<CacheUpdateDto.PortfolioCacheUpdateRequest> captor =
-                ArgumentCaptor.forClass(CacheUpdateDto.PortfolioCacheUpdateRequest.class);
-        verify(cacheUpdateUseCase).updatePortfolioCache(captor.capture());
-        assertThat(captor.getValue().getQuantity()).isEqualByComparingTo("10.5");
+        ArgumentCaptor<List<CacheUpdateDto.PortfolioCacheUpdateRequest>> captor =
+                ArgumentCaptor.forClass(List.class);
+        verify(cacheUpdateUseCase).updatePortfolioCaches(captor.capture());
+        assertThat(captor.getValue().getFirst().getQuantity()).isEqualByComparingTo("10.5");
         assertThat(registry.find(ProfitWorkerMetrics.EVENTS_CONSUMED)
                 .tags(ProfitWorkerMetrics.TAG_EVENT_TYPE, ProfitWorkerMetrics.EVENT_TYPE_PORTFOLIO_TRADE,
                         ProfitWorkerMetrics.TAG_RESULT, ProfitWorkerMetrics.RESULT_SUCCESS)
@@ -97,11 +98,11 @@ class CacheUpdateEventConsumerTest {
                 }
                 """));
 
-        ArgumentCaptor<CacheUpdateDto.UserCacheUpdateRequest> captor =
-                ArgumentCaptor.forClass(CacheUpdateDto.UserCacheUpdateRequest.class);
-        verify(cacheUpdateUseCase).updateUserCache(captor.capture());
+        ArgumentCaptor<List<CacheUpdateDto.UserCacheUpdateRequest>> captor =
+                ArgumentCaptor.forClass(List.class);
+        verify(cacheUpdateUseCase).updateUserCaches(captor.capture());
 
-        CacheUpdateDto.UserCacheUpdateRequest request = captor.getValue();
+        CacheUpdateDto.UserCacheUpdateRequest request = captor.getValue().getFirst();
         assertThat(request.getUserId()).isEqualTo("7a22103f-1d1c-4ab4-9c47-4040c3a46964");
         assertThat(request.getPortfolioId()).isEqualTo(456L);
         assertThat(request.getType()).isEqualTo(CacheUpdateDto.UserCacheUpdateRequest.ChangeType.CREATED);

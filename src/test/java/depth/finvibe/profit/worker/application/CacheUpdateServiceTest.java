@@ -229,6 +229,39 @@ class CacheUpdateServiceTest {
                 .summary().totalAmount()).isEqualTo(0.0);
     }
 
+    @Test
+    void coalescesValuationSnapshotsForPortfolioTradeBatch() {
+        TestMetricsFactory.MetricsFixture fixture = TestMetricsFactory.create();
+        FakePortfolioStateStore portfolioStateStore = new FakePortfolioStateStore();
+        FakeUserStateStore userStateStore = new FakeUserStateStore(portfolioStateStore);
+        userStateStore.userIdsByPortfolioId.put(1L, "100");
+        FakeValuationRepository valuationRepository = new FakeValuationRepository();
+        CacheUpdateService service = new CacheUpdateService(portfolioStateStore, userStateStore, valuationRepository, fixture.metrics());
+
+        service.updatePortfolioCaches(List.of(
+                CacheUpdateDto.PortfolioCacheUpdateRequest.builder()
+                        .portfolioId(1L)
+                        .stockId(10L)
+                        .type(CacheUpdateDto.PortfolioCacheUpdateRequest.TradeType.STOCK_BUY)
+                        .price(100L)
+                        .quantity(BigDecimal.TEN)
+                        .build(),
+                CacheUpdateDto.PortfolioCacheUpdateRequest.builder()
+                        .portfolioId(1L)
+                        .stockId(10L)
+                        .type(CacheUpdateDto.PortfolioCacheUpdateRequest.TradeType.STOCK_BUY)
+                        .price(100L)
+                        .quantity(BigDecimal.ONE)
+                        .build()
+        ));
+
+        assertThat(portfolioStateStore.stockQuantities.get("1:10")).isEqualByComparingTo("11");
+        assertThat(valuationRepository.portfolioValuations.get(1L).getCurrentValue()).isEqualTo(1_100L);
+        assertThat(valuationRepository.userValuations.get("100").getCurrentValue()).isEqualTo(1_100L);
+        assertThat(valuationRepository.portfolioSaveCount).isEqualTo(1);
+        assertThat(valuationRepository.userSaveCount).isEqualTo(1);
+    }
+
     private static class FakePortfolioStateStore implements PortfolioStateStore {
 
         private final Map<Long, Set<Long>> stockIdsByPortfolioId = new HashMap<>();
@@ -472,11 +505,14 @@ class CacheUpdateServiceTest {
         private final Set<Long> dirtyPortfolioIds = new HashSet<>();
         private final Set<String> dirtyUserIds = new HashSet<>();
         private final Set<Long> deletedPortfolioIds = new HashSet<>();
+        private int portfolioSaveCount;
+        private int userSaveCount;
 
         @Override
         public void savePortfolioValuation(PortfolioValuation valuation) {
             portfolioValuations.put(valuation.getPortfolioId(), valuation);
             dirtyPortfolioIds.add(valuation.getPortfolioId());
+            portfolioSaveCount++;
         }
 
         @Override
@@ -488,6 +524,7 @@ class CacheUpdateServiceTest {
         public void saveUserValuation(UserValuation valuation) {
             userValuations.put(valuation.getUserId(), valuation);
             dirtyUserIds.add(valuation.getUserId());
+            userSaveCount++;
         }
 
         @Override

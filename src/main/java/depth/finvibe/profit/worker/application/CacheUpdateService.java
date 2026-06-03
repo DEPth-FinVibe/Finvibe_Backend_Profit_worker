@@ -13,7 +13,11 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * 이벤트가 발생했을때, Valuation을 제외한 캐시 정보를 업데이트하는 서비스 <br /> <br />
@@ -40,22 +44,49 @@ public class CacheUpdateService implements CacheUpdateUseCase {
     public void updatePortfolioCache(CacheUpdateDto.PortfolioCacheUpdateRequest req) {
         Timer.Sample sample = metrics.startSample();
         String result = ProfitWorkerMetrics.RESULT_FAILURE;
-        Long portfolioId = Objects.requireNonNull(req.getPortfolioId(), "portfolioId must not be null");
-        Long stockId = Objects.requireNonNull(req.getStockId(), "stockId must not be null");
-        Long price = Objects.requireNonNull(req.getPrice(), "price must not be null");
-        BigDecimal quantity = Objects.requireNonNull(req.getQuantity(), "quantity must not be null");
-        CacheUpdateDto.PortfolioCacheUpdateRequest.TradeType type =
-                Objects.requireNonNull(req.getType(), "type must not be null");
-
-        BigDecimal amount = ValuationDecimalSupport.decimalOf(price).multiply(quantity);
 
         try {
-            long affectedUsers = switch (type) {
-                case STOCK_BUY -> updatePortfolioCacheByStockBuy(portfolioId, stockId, quantity, amount);
-                case STOCK_SELL -> updatePortfolioCacheByStockSell(portfolioId, stockId, quantity, amount);
-            };
+            PortfolioCacheUpdate update = toPortfolioCacheUpdate(req);
+            PortfolioUpdateResult updateResult = applyPortfolioCacheUpdate(update);
+
+            savePortfolioValuationSnapshot(update.portfolioId());
+            if (updateResult.userId() != null) {
+                saveUserValuationSnapshot(updateResult.userId());
+            }
 
             metrics.recordAffectedPortfolios(ProfitWorkerMetrics.OPERATION_PORTFOLIO_CACHE_UPDATE, 1);
+            metrics.recordAffectedUsers(ProfitWorkerMetrics.OPERATION_PORTFOLIO_CACHE_UPDATE, updateResult.affectedUserCount());
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
+        } finally {
+            metrics.recordServiceDuration(ProfitWorkerMetrics.OPERATION_PORTFOLIO_CACHE_UPDATE, result, sample);
+        }
+    }
+
+    @Override
+    public void updatePortfolioCaches(List<CacheUpdateDto.PortfolioCacheUpdateRequest> requests) {
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
+
+        try {
+            Set<Long> changedPortfolioIds = new LinkedHashSet<>();
+            Set<String> changedUserIds = new LinkedHashSet<>();
+            long affectedUsers = 0L;
+
+            for (CacheUpdateDto.PortfolioCacheUpdateRequest request : requests) {
+                PortfolioCacheUpdate update = toPortfolioCacheUpdate(request);
+                PortfolioUpdateResult updateResult = applyPortfolioCacheUpdate(update);
+
+                changedPortfolioIds.add(update.portfolioId());
+                if (updateResult.userId() != null) {
+                    changedUserIds.add(updateResult.userId());
+                }
+                affectedUsers += updateResult.affectedUserCount();
+            }
+
+            savePortfolioValuationSnapshots(changedPortfolioIds);
+            saveUserValuationSnapshots(changedUserIds);
+
+            metrics.recordAffectedPortfolios(ProfitWorkerMetrics.OPERATION_PORTFOLIO_CACHE_UPDATE, requests.size());
             metrics.recordAffectedUsers(ProfitWorkerMetrics.OPERATION_PORTFOLIO_CACHE_UPDATE, affectedUsers);
             result = ProfitWorkerMetrics.RESULT_SUCCESS;
         } finally {
@@ -67,18 +98,11 @@ public class CacheUpdateService implements CacheUpdateUseCase {
     public void updateUserCache(CacheUpdateDto.UserCacheUpdateRequest request) {
         Timer.Sample sample = metrics.startSample();
         String result = ProfitWorkerMetrics.RESULT_FAILURE;
-        String userId = Objects.requireNonNull(request.getUserId(), "userId must not be null");
-        Long portfolioId = Objects.requireNonNull(request.getPortfolioId(), "portfolioId must not be null");
-        CacheUpdateDto.UserCacheUpdateRequest.ChangeType type =
-                Objects.requireNonNull(request.getType(), "type must not be null");
-
-        Long portfolioPurchasedValue = portfolioStateStore.findPurchasedValue(portfolioId);
 
         try {
-            switch (type) {
-                case CREATED -> updateUserCacheByPortfolioCreated(userId, portfolioId, portfolioPurchasedValue);
-                case DELETED -> updateUserCacheByPortfolioDeleted(userId, portfolioId, portfolioPurchasedValue);
-            }
+            UserCacheUpdate update = toUserCacheUpdate(request);
+            applyUserCacheUpdate(update);
+            saveUserValuationSnapshot(update.userId());
 
             metrics.recordAffectedPortfolios(ProfitWorkerMetrics.OPERATION_USER_CACHE_UPDATE, 1);
             metrics.recordAffectedUsers(ProfitWorkerMetrics.OPERATION_USER_CACHE_UPDATE, 1);
@@ -88,92 +112,173 @@ public class CacheUpdateService implements CacheUpdateUseCase {
         }
     }
 
-    private long updatePortfolioCacheByStockBuy(Long portfolioId, Long stockId, BigDecimal quantity, BigDecimal amount) {
-        boolean added = portfolioStateStore.increaseStockQuantity(stockId, portfolioId, quantity);
-        portfolioStateStore.addPurchasedValue(portfolioId, roundToLong(amount));
-        portfolioStateStore.addCurrentValue(portfolioId, amount);
-        portfolioStateStore.addStockCurrentValue(stockId, portfolioId, amount);
-        String userId = userStateStore.findUserIdByPortfolioId(portfolioId);
+    @Override
+    public void updateUserCaches(List<CacheUpdateDto.UserCacheUpdateRequest> requests) {
+        Timer.Sample sample = metrics.startSample();
+        String result = ProfitWorkerMetrics.RESULT_FAILURE;
 
-        if (userId != null) {
-            userStateStore.addPurchasedValue(userId, roundToLong(amount));
+        try {
+            Set<String> changedUserIds = new LinkedHashSet<>();
+
+            for (CacheUpdateDto.UserCacheUpdateRequest request : requests) {
+                UserCacheUpdate update = toUserCacheUpdate(request);
+                applyUserCacheUpdate(update);
+                changedUserIds.add(update.userId());
+            }
+
+            saveUserValuationSnapshots(changedUserIds);
+
+            metrics.recordAffectedPortfolios(ProfitWorkerMetrics.OPERATION_USER_CACHE_UPDATE, requests.size());
+            metrics.recordAffectedUsers(ProfitWorkerMetrics.OPERATION_USER_CACHE_UPDATE, requests.size());
+            result = ProfitWorkerMetrics.RESULT_SUCCESS;
+        } finally {
+            metrics.recordServiceDuration(ProfitWorkerMetrics.OPERATION_USER_CACHE_UPDATE, result, sample);
         }
+    }
+
+    private PortfolioCacheUpdate toPortfolioCacheUpdate(CacheUpdateDto.PortfolioCacheUpdateRequest req) {
+        Long portfolioId = Objects.requireNonNull(req.getPortfolioId(), "portfolioId must not be null");
+        Long stockId = Objects.requireNonNull(req.getStockId(), "stockId must not be null");
+        Long price = Objects.requireNonNull(req.getPrice(), "price must not be null");
+        BigDecimal quantity = Objects.requireNonNull(req.getQuantity(), "quantity must not be null");
+        CacheUpdateDto.PortfolioCacheUpdateRequest.TradeType type =
+                Objects.requireNonNull(req.getType(), "type must not be null");
+        BigDecimal amount = ValuationDecimalSupport.decimalOf(price).multiply(quantity);
+
+        return new PortfolioCacheUpdate(portfolioId, stockId, quantity, amount, type);
+    }
+
+    private UserCacheUpdate toUserCacheUpdate(CacheUpdateDto.UserCacheUpdateRequest request) {
+        String userId = Objects.requireNonNull(request.getUserId(), "userId must not be null");
+        Long portfolioId = Objects.requireNonNull(request.getPortfolioId(), "portfolioId must not be null");
+        CacheUpdateDto.UserCacheUpdateRequest.ChangeType type =
+                Objects.requireNonNull(request.getType(), "type must not be null");
+        Long portfolioPurchasedValue = portfolioStateStore.findPurchasedValue(portfolioId);
+
+        return new UserCacheUpdate(userId, portfolioId, portfolioPurchasedValue, type);
+    }
+
+    private PortfolioUpdateResult applyPortfolioCacheUpdate(PortfolioCacheUpdate update) {
+        String userId = switch (update.type()) {
+            case STOCK_BUY -> updatePortfolioCacheByStockBuy(update);
+            case STOCK_SELL -> updatePortfolioCacheByStockSell(update);
+        };
+        return new PortfolioUpdateResult(userId);
+    }
+
+    private String updatePortfolioCacheByStockBuy(PortfolioCacheUpdate update) {
+        boolean added = portfolioStateStore.increaseStockQuantity(update.stockId(), update.portfolioId(), update.quantity());
+        portfolioStateStore.addPurchasedValue(update.portfolioId(), roundToLong(update.amount()));
+        portfolioStateStore.addCurrentValue(update.portfolioId(), update.amount());
+        portfolioStateStore.addStockCurrentValue(update.stockId(), update.portfolioId(), update.amount());
+        String userId = userStateStore.findUserIdByPortfolioId(update.portfolioId());
 
         if (added) {
-            portfolioStateStore.increaseAssetCount(portfolioId);
+            portfolioStateStore.increaseAssetCount(update.portfolioId());
         }
-
-        saveValuationSnapshot(portfolioId, userId);
-        return userId == null ? 0L : 1L;
-    }
-
-    private long updatePortfolioCacheByStockSell(Long portfolioId, Long stockId, BigDecimal quantity, BigDecimal amount) {
-        boolean removed = portfolioStateStore.decreaseStockQuantity(stockId, portfolioId, quantity);
-        portfolioStateStore.subtractPurchasedValue(portfolioId, roundToLong(amount));
-        portfolioStateStore.subtractCurrentValue(portfolioId, amount);
-        portfolioStateStore.subtractStockCurrentValue(stockId, portfolioId, amount);
-        String userId = userStateStore.findUserIdByPortfolioId(portfolioId);
 
         if (userId != null) {
-            userStateStore.subtractPurchasedValue(userId, roundToLong(amount));
+            userStateStore.addPurchasedValue(userId, roundToLong(update.amount()));
         }
+
+        return userId;
+    }
+
+    private String updatePortfolioCacheByStockSell(PortfolioCacheUpdate update) {
+        boolean removed = portfolioStateStore.decreaseStockQuantity(update.stockId(), update.portfolioId(), update.quantity());
+        portfolioStateStore.subtractPurchasedValue(update.portfolioId(), roundToLong(update.amount()));
+        portfolioStateStore.subtractCurrentValue(update.portfolioId(), update.amount());
+        portfolioStateStore.subtractStockCurrentValue(update.stockId(), update.portfolioId(), update.amount());
+        String userId = userStateStore.findUserIdByPortfolioId(update.portfolioId());
 
         if (removed) {
-            portfolioStateStore.decreaseAssetCount(portfolioId);
+            portfolioStateStore.decreaseAssetCount(update.portfolioId());
         }
-
-        saveValuationSnapshot(portfolioId, userId);
-        return userId == null ? 0L : 1L;
-    }
-
-    private void updateUserCacheByPortfolioCreated(String userId, Long portfolioId, Long portfolioPurchasedValue) {
-        userStateStore.mapPortfolioToUser(portfolioId, userId);
-        userStateStore.addPurchasedValue(userId, portfolioPurchasedValue);
-        userStateStore.increasePortfolioCount(userId);
-        saveUserValuationSnapshot(userId);
-    }
-
-    private void updateUserCacheByPortfolioDeleted(String userId, Long portfolioId, Long portfolioPurchasedValue) {
-        userStateStore.removePortfolioUserMapping(portfolioId);
-        userStateStore.subtractPurchasedValue(userId, portfolioPurchasedValue);
-        userStateStore.decreasePortfolioCount(userId);
-        valuationRepository.markPortfolioValuationDeleted(portfolioId);
-        portfolioStateStore.deletePortfolioState(portfolioId);
-        saveUserValuationSnapshot(userId);
-    }
-
-    private void saveValuationSnapshot(Long portfolioId, String userId) {
-        savePortfolioValuationSnapshot(portfolioId);
 
         if (userId != null) {
-            saveUserValuationSnapshot(userId);
+            userStateStore.subtractPurchasedValue(userId, roundToLong(update.amount()));
         }
+
+        return userId;
+    }
+
+    private void applyUserCacheUpdate(UserCacheUpdate update) {
+        switch (update.type()) {
+            case CREATED -> updateUserCacheByPortfolioCreated(update);
+            case DELETED -> updateUserCacheByPortfolioDeleted(update);
+        }
+    }
+
+    private void updateUserCacheByPortfolioCreated(UserCacheUpdate update) {
+        userStateStore.mapPortfolioToUser(update.portfolioId(), update.userId());
+        userStateStore.addPurchasedValue(update.userId(), update.portfolioPurchasedValue());
+        userStateStore.increasePortfolioCount(update.userId());
+    }
+
+    private void updateUserCacheByPortfolioDeleted(UserCacheUpdate update) {
+        userStateStore.removePortfolioUserMapping(update.portfolioId());
+        userStateStore.subtractPurchasedValue(update.userId(), update.portfolioPurchasedValue());
+        userStateStore.decreasePortfolioCount(update.userId());
+        valuationRepository.markPortfolioValuationDeleted(update.portfolioId());
+        portfolioStateStore.deletePortfolioState(update.portfolioId());
     }
 
     private void savePortfolioValuationSnapshot(Long portfolioId) {
+        valuationRepository.savePortfolioValuation(buildPortfolioValuation(portfolioId));
+    }
+
+    private void savePortfolioValuationSnapshots(Set<Long> portfolioIds) {
+        if (portfolioIds.isEmpty()) {
+            return;
+        }
+
+        List<PortfolioValuation> valuations = new ArrayList<>();
+        for (Long portfolioId : portfolioIds) {
+            valuations.add(buildPortfolioValuation(portfolioId));
+        }
+        valuationRepository.bulkSavePortfolioValuations(valuations);
+    }
+
+    private PortfolioValuation buildPortfolioValuation(Long portfolioId) {
         Long purchasedValue = portfolioStateStore.findPurchasedValue(portfolioId);
         BigDecimal currentValue = portfolioStateStore.findCurrentValue(portfolioId);
 
-        valuationRepository.savePortfolioValuation(PortfolioValuation.builder()
+        return PortfolioValuation.builder()
                 .portfolioId(portfolioId)
                 .purchasedValue(purchasedValue)
                 .currentValue(roundToLong(currentValue))
                 .profitRate(calculateProfitRate(purchasedValue, currentValue))
                 .assetCount(portfolioStateStore.findAssetCount(portfolioId))
-                .build());
+                .build();
     }
 
     private void saveUserValuationSnapshot(String userId) {
+        valuationRepository.saveUserValuation(buildUserValuation(userId));
+    }
+
+    private void saveUserValuationSnapshots(Set<String> userIds) {
+        if (userIds.isEmpty()) {
+            return;
+        }
+
+        List<UserValuation> valuations = new ArrayList<>();
+        for (String userId : userIds) {
+            valuations.add(buildUserValuation(userId));
+        }
+        valuationRepository.bulkSaveUserValuations(valuations);
+    }
+
+    private UserValuation buildUserValuation(String userId) {
         Long purchasedValue = userStateStore.findPurchasedValue(userId);
         BigDecimal currentValue = userStateStore.calculateCurrentValue(userId);
 
-        valuationRepository.saveUserValuation(UserValuation.builder()
+        return UserValuation.builder()
                 .userId(userId)
                 .purchasedValue(purchasedValue)
                 .currentValue(roundToLong(currentValue))
                 .profitRate(calculateProfitRate(purchasedValue, currentValue))
                 .portfolioCount(userStateStore.findPortfolioCount(userId))
-                .build());
+                .build();
     }
 
     private Double calculateProfitRate(Long purchasedValue, BigDecimal currentValue) {
@@ -190,5 +295,28 @@ public class CacheUpdateService implements CacheUpdateUseCase {
 
     private Long roundToLong(BigDecimal value) {
         return ValuationDecimalSupport.toWholeNumber(value);
+    }
+
+    private record PortfolioCacheUpdate(
+            Long portfolioId,
+            Long stockId,
+            BigDecimal quantity,
+            BigDecimal amount,
+            CacheUpdateDto.PortfolioCacheUpdateRequest.TradeType type
+    ) {
+    }
+
+    private record PortfolioUpdateResult(String userId) {
+        long affectedUserCount() {
+            return userId == null ? 0L : 1L;
+        }
+    }
+
+    private record UserCacheUpdate(
+            String userId,
+            Long portfolioId,
+            Long portfolioPurchasedValue,
+            CacheUpdateDto.UserCacheUpdateRequest.ChangeType type
+    ) {
     }
 }
