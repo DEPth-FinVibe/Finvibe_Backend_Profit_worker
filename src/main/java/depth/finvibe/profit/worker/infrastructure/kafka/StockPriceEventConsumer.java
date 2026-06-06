@@ -31,6 +31,7 @@ public class StockPriceEventConsumer {
         Timer.Sample sample = metrics.startSample();
         String result = ProfitWorkerMetrics.RESULT_FAILURE;
 
+        int failureCount = 0;
         try {
             // stockId 기준 중복 제거 — 같은 종목은 배치 내 최신 가격만 처리
             Map<Long, StockPriceUpdatedEvent> latestByStockId = new LinkedHashMap<>();
@@ -53,10 +54,17 @@ public class StockPriceEventConsumer {
                     })
                     .toList();
 
+            failureCount = requests.size();
             profitCalculationUseCase.updateProfitsByStockPriceChanges(requests);
 
             requests.forEach(r -> metrics.recordConsumed(ProfitWorkerMetrics.EVENT_TYPE_STOCK_PRICE_UPDATED, ProfitWorkerMetrics.RESULT_SUCCESS));
             result = ProfitWorkerMetrics.RESULT_SUCCESS;
+        } catch (RuntimeException exception) {
+            int consumedFailureCount = failureCount == 0 ? payloads.size() : failureCount;
+            for (int i = 0; i < consumedFailureCount; i++) {
+                metrics.recordConsumed(ProfitWorkerMetrics.EVENT_TYPE_STOCK_PRICE_UPDATED, ProfitWorkerMetrics.RESULT_FAILURE);
+            }
+            throw exception;
         } finally {
             metrics.recordListenerDuration(ProfitWorkerMetrics.EVENT_TYPE_STOCK_PRICE_UPDATED, result, sample);
         }

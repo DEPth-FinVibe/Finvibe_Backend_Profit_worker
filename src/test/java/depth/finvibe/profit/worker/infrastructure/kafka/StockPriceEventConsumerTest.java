@@ -14,6 +14,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -107,17 +108,43 @@ class StockPriceEventConsumerTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("price must be an integer");
         verifyNoInteractions(profitCalculationUseCase);
+        assertThat(registry.find(ProfitWorkerMetrics.EVENTS_CONSUMED)
+                .tags(ProfitWorkerMetrics.TAG_EVENT_TYPE, ProfitWorkerMetrics.EVENT_TYPE_STOCK_PRICE_UPDATED,
+                        ProfitWorkerMetrics.TAG_RESULT, ProfitWorkerMetrics.RESULT_FAILURE)
+                .counter().count()).isEqualTo(1.0);
+        assertThat(registry.find(ProfitWorkerMetrics.LISTENER_DURATION)
+                .tags(ProfitWorkerMetrics.TAG_EVENT_TYPE, ProfitWorkerMetrics.EVENT_TYPE_STOCK_PRICE_UPDATED,
+                        ProfitWorkerMetrics.TAG_RESULT, ProfitWorkerMetrics.RESULT_FAILURE)
+                .timer().count()).isEqualTo(1);
     }
 
     @Test
-    void recordsFailureMetricsForInvalidJson() {
+    void recordsFailureMetricsWhenRecalculationFails() {
         ProfitCalculationUseCase profitCalculationUseCase = mock(ProfitCalculationUseCase.class);
+        doThrow(new IllegalStateException("redis unavailable"))
+                .when(profitCalculationUseCase)
+                .updateProfitsByStockPriceChanges(org.mockito.ArgumentMatchers.anyList());
         TestMetricsFactory.MetricsFixture fixture = TestMetricsFactory.create();
         SimpleMeterRegistry registry = fixture.registry();
         StockPriceEventConsumer consumer = new StockPriceEventConsumer(profitCalculationUseCase, fixture.metrics());
 
-        assertThatThrownBy(() -> consumer.consumeStockPriceUpdatedEvents(List.of("{not-json}")))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Invalid Kafka event payload");
+        assertThatThrownBy(() -> consumer.consumeStockPriceUpdatedEvents(List.of(
+                """
+                {"stockId": 123, "price": 70000, "updatedAt": "2026-05-13T13:00:00"}
+                """,
+                """
+                {"stockId": 123, "price": 72000, "updatedAt": "2026-05-13T13:00:01"}
+                """,
+                """
+                {"stockId": 456, "price": 50000, "updatedAt": "2026-05-13T13:00:00"}
+                """
+        )))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("redis unavailable");
+
+        assertThat(registry.find(ProfitWorkerMetrics.EVENTS_CONSUMED)
+                .tags(ProfitWorkerMetrics.TAG_EVENT_TYPE, ProfitWorkerMetrics.EVENT_TYPE_STOCK_PRICE_UPDATED,
+                        ProfitWorkerMetrics.TAG_RESULT, ProfitWorkerMetrics.RESULT_FAILURE)
+                .counter().count()).isEqualTo(2.0);
     }
 }
