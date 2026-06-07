@@ -26,7 +26,11 @@ public class CacheUpdateEventConsumer {
     private final ProfitWorkerMetrics metrics;
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
-    @KafkaListener(topics = "${app.kafka.topics.portfolio-trade:trade.trade-executed.v1}")
+    @KafkaListener(
+            topics = "${app.kafka.topics.portfolio-trade:trade.trade-executed.v1}",
+            groupId = "${app.kafka.consumer.groups.trade:profit-worker-trade}",
+            concurrency = "${app.kafka.consumer.concurrency.trade:1}"
+    )
     public void consumePortfolioTradeEvents(List<String> payloads) {
         List<CacheUpdateDto.PortfolioCacheUpdateRequest> requests = new ArrayList<>();
         List<Timer.Sample> samples = new ArrayList<>();
@@ -67,7 +71,11 @@ public class CacheUpdateEventConsumer {
         }
     }
 
-    @KafkaListener(topics = "${app.kafka.topics.portfolio-user:asset.portfolio-group-changed.v1}")
+    @KafkaListener(
+            topics = "${app.kafka.topics.portfolio-user:asset.portfolio-group-changed.v1}",
+            groupId = "${app.kafka.consumer.groups.portfolio:profit-worker-portfolio}",
+            concurrency = "${app.kafka.consumer.concurrency.portfolio:1}"
+    )
     public void consumePortfolioUserEvents(List<String> payloads) {
         List<CacheUpdateDto.UserCacheUpdateRequest> requests = new ArrayList<>();
         List<Timer.Sample> samples = new ArrayList<>();

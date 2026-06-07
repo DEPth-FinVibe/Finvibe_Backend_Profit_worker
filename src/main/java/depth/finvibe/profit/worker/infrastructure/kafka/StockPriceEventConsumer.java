@@ -26,7 +26,11 @@ public class StockPriceEventConsumer {
     private final ProfitWorkerMetrics metrics;
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
-    @KafkaListener(topics = "${app.kafka.topics.stock-price-updated:market.stock-price-updated.v1}")
+    @KafkaListener(
+            topics = "${app.kafka.topics.stock-price-updated:market.stock-price-updated.v1}",
+            groupId = "${app.kafka.consumer.groups.stock-price:profit-worker-price}",
+            concurrency = "${app.kafka.consumer.concurrency.stock-price:2}"
+    )
     public void consumeStockPriceUpdatedEvents(List<String> payloads) {
         Timer.Sample sample = metrics.startSample();
         String result = ProfitWorkerMetrics.RESULT_FAILURE;
