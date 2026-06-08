@@ -33,6 +33,11 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      lettuce:
+        cluster:
+          refresh:
+            period: ${REDIS_CLUSTER_REFRESH_PERIOD:30s}
+            dynamic-refresh-sources: ${REDIS_CLUSTER_DYNAMIC_REFRESH_SOURCES:true}
 
 management:
   endpoints:
