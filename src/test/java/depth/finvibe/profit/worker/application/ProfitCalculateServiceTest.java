@@ -1,7 +1,6 @@
 package depth.finvibe.profit.worker.application;
 
 import depth.finvibe.profit.worker.application.port.out.PortfolioStateStore;
-import depth.finvibe.profit.worker.application.port.out.UserStateStore;
 import depth.finvibe.profit.worker.application.port.out.ValuationRepository;
 import depth.finvibe.profit.worker.domain.PortfolioValuation;
 import depth.finvibe.profit.worker.domain.UserValuation;
@@ -19,15 +18,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ProfitCalculateServiceTest {
 
     @Test
-    void updatesPortfolioAndUserValuationByStockPriceChange() {
+    void updatesPortfolioValuationByStockPriceChange() {
         TestMetricsFactory.MetricsFixture fixture = TestMetricsFactory.create();
         SimpleMeterRegistry registry = fixture.registry();
         FakeValuationRepository valuationRepository = new FakeValuationRepository();
         FakePortfolioStateStore portfolioStateStore = new FakePortfolioStateStore();
-        FakeUserStateStore userStateStore = new FakeUserStateStore();
         ProfitCalculateService service = new ProfitCalculateService(
                 portfolioStateStore,
-                userStateStore,
                 valuationRepository,
                 fixture.metrics()
         );
@@ -40,13 +37,9 @@ class ProfitCalculateServiceTest {
         portfolioStateStore.stockHoldings.put("1:10", new PortfolioStateStore.StockHolding(BigDecimal.TEN, new BigDecimal("1000")));
         portfolioStateStore.stockHoldings.put("2:10", new PortfolioStateStore.StockHolding(new BigDecimal("2"), new BigDecimal("600")));
 
-        userStateStore.userMetadata.put("100", new UserStateStore.UserMetadata(2_000L, 2L));
-        userStateStore.currentValues.put("100", new BigDecimal("2000"));
-
         // Stock 10 price changes to 150
         // Portfolio 1: newStockCV=1500, delta=+500, newCV=1500
         // Portfolio 2: newStockCV=300, delta=-300, newCV=700
-        // User "100": delta=+200, newCV=2200
         service.updateProfitByStockPriceChange(ProfitCalculationDto.ProfitCalculationRequest.builder()
                 .stockId(10L)
                 .newPrice(150L)
@@ -64,40 +57,27 @@ class ProfitCalculateServiceTest {
         assertThat(secondPortfolio.getProfitRate()).isEqualTo(-30.0);
         assertThat(secondPortfolio.getAssetCount()).isEqualTo(1L);
 
-        assertThat(valuationRepository.savedUserValuations).hasSize(1);
-
-        UserValuation userValuation = valuationRepository.userValuations.get("100");
-        assertThat(userValuation.getPurchasedValue()).isEqualTo(2_000L);
-        assertThat(userValuation.getCurrentValue()).isEqualTo(2_200L);
-        assertThat(userValuation.getProfitRate()).isEqualTo(10.0);
-        assertThat(userValuation.getPortfolioCount()).isEqualTo(2L);
-        assertThat(userStateStore.bulkIncrementAndFetchCalls).isEqualTo(1);
-        assertThat(userStateStore.bulkIncrementCalls).isZero();
-        assertThat(userStateStore.bulkFetchMetadataCalls).isZero();
         assertThat(portfolioStateStore.bulkIncrementAndFetchCalls).isEqualTo(1);
         assertThat(portfolioStateStore.bulkIncrementCalls).isZero();
         assertThat(portfolioStateStore.bulkFetchMetadataCalls).isZero();
         assertThat(valuationRepository.bulkPortfolioPriceUpdateSaveCalls).isEqualTo(1);
-        assertThat(valuationRepository.bulkUserPriceUpdateSaveCalls).isEqualTo(1);
         assertThat(valuationRepository.bulkPortfolioSaveCalls).isZero();
-        assertThat(valuationRepository.bulkUserSaveCalls).isZero();
+        assertThat(valuationRepository.bulkUserPriceUpdateSaveCalls).isZero();
         assertThat(registry.find(ProfitWorkerMetrics.AFFECTED_PORTFOLIOS)
                 .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION)
                 .summary().totalAmount()).isEqualTo(2.0);
         assertThat(registry.find(ProfitWorkerMetrics.AFFECTED_USERS)
                 .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION)
-                .summary().totalAmount()).isEqualTo(1.0);
+                .summary()).isNull();
     }
 
     @Test
-    void roundsFractionalPortfolioAndUserCurrentValue() {
+    void roundsFractionalPortfolioCurrentValue() {
         TestMetricsFactory.MetricsFixture fixture = TestMetricsFactory.create();
         FakeValuationRepository valuationRepository = new FakeValuationRepository();
         FakePortfolioStateStore portfolioStateStore = new FakePortfolioStateStore();
-        FakeUserStateStore userStateStore = new FakeUserStateStore();
         ProfitCalculateService service = new ProfitCalculateService(
                 portfolioStateStore,
-                userStateStore,
                 valuationRepository,
                 fixture.metrics()
         );
@@ -108,16 +88,12 @@ class ProfitCalculateServiceTest {
         portfolioStateStore.portfolioMetadata.put(1L, new PortfolioStateStore.PortfolioMetadata(1_000L, 2L, "100", new BigDecimal("400.5")));
         portfolioStateStore.stockHoldings.put("1:10", new PortfolioStateStore.StockHolding(BigDecimal.TEN, new BigDecimal("1400")));
 
-        userStateStore.userMetadata.put("100", new UserStateStore.UserMetadata(1_000L, 1L));
-        userStateStore.currentValues.put("100", new BigDecimal("400.5"));
-
         service.updateProfitByStockPriceChange(ProfitCalculationDto.ProfitCalculationRequest.builder()
                 .stockId(10L)
                 .newPrice(150L)
                 .build());
 
         assertThat(valuationRepository.portfolioValuations.get(1L).getCurrentValue()).isEqualTo(501L);
-        assertThat(valuationRepository.userValuations.get("100").getCurrentValue()).isEqualTo(501L);
     }
 
     @Test
@@ -125,10 +101,8 @@ class ProfitCalculateServiceTest {
         TestMetricsFactory.MetricsFixture fixture = TestMetricsFactory.create();
         FakeValuationRepository valuationRepository = new FakeValuationRepository();
         FakePortfolioStateStore portfolioStateStore = new FakePortfolioStateStore();
-        FakeUserStateStore userStateStore = new FakeUserStateStore();
         ProfitCalculateService service = new ProfitCalculateService(
                 portfolioStateStore,
-                userStateStore,
                 valuationRepository,
                 fixture.metrics()
         );
@@ -137,16 +111,12 @@ class ProfitCalculateServiceTest {
         portfolioStateStore.portfolioMetadata.put(1L, new PortfolioStateStore.PortfolioMetadata(0L, 1L, "100", new BigDecimal("500")));
         portfolioStateStore.stockHoldings.put("1:10", new PortfolioStateStore.StockHolding(BigDecimal.TEN, new BigDecimal("1000")));
 
-        userStateStore.userMetadata.put("100", new UserStateStore.UserMetadata(0L, 1L));
-        userStateStore.currentValues.put("100", new BigDecimal("500"));
-
         service.updateProfitByStockPriceChange(ProfitCalculationDto.ProfitCalculationRequest.builder()
                 .stockId(10L)
                 .newPrice(150L)
                 .build());
 
         assertThat(valuationRepository.portfolioValuations.get(1L).getProfitRate()).isEqualTo(0.0);
-        assertThat(valuationRepository.userValuations.get("100").getProfitRate()).isEqualTo(0.0);
     }
 
     @Test
@@ -155,10 +125,8 @@ class ProfitCalculateServiceTest {
         SimpleMeterRegistry registry = fixture.registry();
         FakeValuationRepository valuationRepository = new FakeValuationRepository();
         FakePortfolioStateStore portfolioStateStore = new FakePortfolioStateStore();
-        FakeUserStateStore userStateStore = new FakeUserStateStore();
         ProfitCalculateService service = new ProfitCalculateService(
                 portfolioStateStore,
-                userStateStore,
                 valuationRepository,
                 fixture.metrics()
         );
@@ -171,7 +139,9 @@ class ProfitCalculateServiceTest {
                 .build());
 
         assertThat(valuationRepository.portfolioValuations).isEmpty();
-        assertThat(valuationRepository.userValuations).isEmpty();
+        assertThat(registry.find(ProfitWorkerMetrics.AFFECTED_USERS)
+                .tags(ProfitWorkerMetrics.TAG_OPERATION, ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION)
+                .summary()).isNull();
     }
 
     private static class FakePortfolioStateStore implements PortfolioStateStore {
@@ -306,99 +276,11 @@ class ProfitCalculateServiceTest {
         @Override public void deletePortfolioState(Long portfolioId) { throw new UnsupportedOperationException(); }
     }
 
-    private static class FakeUserStateStore implements UserStateStore {
-
-        final Map<String, UserMetadata> userMetadata = new HashMap<>();
-        final Map<String, BigDecimal> currentValues = new HashMap<>();
-        int bulkFetchMetadataCalls;
-        int bulkIncrementCalls;
-        int bulkIncrementAndFetchCalls;
-
-        @Override
-        public String findUserIdByPortfolioId(Long portfolioId) { throw new UnsupportedOperationException(); }
-
-        @Override
-        public Long findPurchasedValue(String userId) {
-            UserMetadata meta = userMetadata.get(userId);
-            return meta != null ? meta.purchasedValue() : 0L;
-        }
-
-        @Override
-        public BigDecimal calculateCurrentValue(String userId) {
-            return currentValues.getOrDefault(userId, BigDecimal.ZERO);
-        }
-
-        @Override
-        public BigDecimal findCurrentValue(String userId) {
-            return currentValues.getOrDefault(userId, BigDecimal.ZERO);
-        }
-
-        @Override
-        public BigDecimal addCurrentValue(String userId, BigDecimal delta) {
-            BigDecimal newValue = currentValues.getOrDefault(userId, BigDecimal.ZERO).add(delta);
-            currentValues.put(userId, newValue);
-            return newValue;
-        }
-
-        @Override
-        public Long findPortfolioCount(String userId) {
-            UserMetadata meta = userMetadata.get(userId);
-            return meta != null ? meta.portfolioCount() : 0L;
-        }
-
-        @Override
-        public Map<String, UserMetadata> bulkFetchUserMetadata(List<String> userIds) {
-            bulkFetchMetadataCalls++;
-            Map<String, UserMetadata> result = new HashMap<>();
-            for (String id : userIds) {
-                UserMetadata meta = userMetadata.get(id);
-                if (meta != null) {
-                    result.put(id, meta);
-                }
-            }
-            return result;
-        }
-
-        @Override
-        public Map<String, BigDecimal> bulkIncrementCurrentValues(Map<String, BigDecimal> deltasByUserId) {
-            bulkIncrementCalls++;
-            Map<String, BigDecimal> result = new HashMap<>();
-            for (var entry : deltasByUserId.entrySet()) {
-                BigDecimal newValue = currentValues.getOrDefault(entry.getKey(), BigDecimal.ZERO).add(entry.getValue());
-                currentValues.put(entry.getKey(), newValue);
-                result.put(entry.getKey(), newValue);
-            }
-            return result;
-        }
-
-        @Override
-        public Map<String, UserStateSnapshot> bulkIncrementCurrentValuesAndFetchMetadata(Map<String, BigDecimal> deltasByUserId) {
-            bulkIncrementAndFetchCalls++;
-            Map<String, UserStateSnapshot> result = new HashMap<>();
-            for (var entry : deltasByUserId.entrySet()) {
-                String userId = entry.getKey();
-                BigDecimal newValue = currentValues.getOrDefault(userId, BigDecimal.ZERO).add(entry.getValue());
-                currentValues.put(userId, newValue);
-                result.put(userId, new UserStateSnapshot(newValue, userMetadata.get(userId)));
-            }
-            return result;
-        }
-
-        @Override public void mapPortfolioToUser(Long portfolioId, String userId) { throw new UnsupportedOperationException(); }
-        @Override public void removePortfolioUserMapping(Long portfolioId) { throw new UnsupportedOperationException(); }
-        @Override public void addPurchasedValue(String userId, Long amount) { throw new UnsupportedOperationException(); }
-        @Override public void subtractPurchasedValue(String userId, Long amount) { throw new UnsupportedOperationException(); }
-        @Override public void increasePortfolioCount(String userId) { throw new UnsupportedOperationException(); }
-        @Override public void decreasePortfolioCount(String userId) { throw new UnsupportedOperationException(); }
-    }
 
     private static class FakeValuationRepository implements ValuationRepository {
 
         final Map<Long, PortfolioValuation> portfolioValuations = new ConcurrentHashMap<>();
-        final Map<String, UserValuation> userValuations = new ConcurrentHashMap<>();
-        final List<UserValuation> savedUserValuations = new ArrayList<>();
         int bulkPortfolioSaveCalls;
-        int bulkUserSaveCalls;
         int bulkPortfolioPriceUpdateSaveCalls;
         int bulkUserPriceUpdateSaveCalls;
 
@@ -414,8 +296,7 @@ class ProfitCalculateServiceTest {
 
         @Override
         public void saveUserValuation(UserValuation valuation) {
-            userValuations.put(valuation.getUserId(), valuation);
-            savedUserValuations.add(valuation);
+            throw new UnsupportedOperationException();
         }
 
         @Override
@@ -428,11 +309,7 @@ class ProfitCalculateServiceTest {
 
         @Override
         public void bulkSaveUserValuations(List<UserValuation> valuations) {
-            bulkUserSaveCalls++;
-            for (UserValuation v : valuations) {
-                userValuations.put(v.getUserId(), v);
-                savedUserValuations.add(v);
-            }
+            throw new UnsupportedOperationException();
         }
 
         @Override
@@ -446,10 +323,6 @@ class ProfitCalculateServiceTest {
         @Override
         public void bulkSaveUserPriceUpdateValuations(List<UserValuation> valuations) {
             bulkUserPriceUpdateSaveCalls++;
-            for (UserValuation v : valuations) {
-                userValuations.put(v.getUserId(), v);
-                savedUserValuations.add(v);
-            }
         }
     }
 }

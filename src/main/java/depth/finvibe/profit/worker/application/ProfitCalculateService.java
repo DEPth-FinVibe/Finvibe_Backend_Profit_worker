@@ -6,12 +6,8 @@ import depth.finvibe.profit.worker.application.port.out.PortfolioStateStore.Port
 import depth.finvibe.profit.worker.application.port.out.PortfolioStateStore.PortfolioStateSnapshot;
 import depth.finvibe.profit.worker.application.port.out.PortfolioStateStore.StockHolding;
 import depth.finvibe.profit.worker.application.port.out.PortfolioStateStore.StockHoldingKey;
-import depth.finvibe.profit.worker.application.port.out.UserStateStore;
-import depth.finvibe.profit.worker.application.port.out.UserStateStore.UserMetadata;
-import depth.finvibe.profit.worker.application.port.out.UserStateStore.UserStateSnapshot;
 import depth.finvibe.profit.worker.application.port.out.ValuationRepository;
 import depth.finvibe.profit.worker.domain.PortfolioValuation;
-import depth.finvibe.profit.worker.domain.UserValuation;
 import depth.finvibe.profit.worker.dto.ProfitCalculationDto;
 import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
@@ -22,16 +18,13 @@ import java.math.RoundingMode;
 import java.util.*;
 
 /**
- * 주식 가격이 변동되었을때, 다음의 항목을 갱신한다. <br />
- * - 관련 포트폴리오의 수익률, 평가액 <br />
- * - 관련 유저의 수익률, 평가액
+ * 주식 가격이 변동되었을때, 관련 포트폴리오의 수익률과 평가액을 갱신한다.
  */
 @Service
 @RequiredArgsConstructor
 public class ProfitCalculateService implements ProfitCalculationUseCase {
 
     private final PortfolioStateStore portfolioStateStore;
-    private final UserStateStore userStateStore;
     private final ValuationRepository valuationRepository;
     private final ProfitWorkerMetrics metrics;
 
@@ -145,7 +138,6 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
 
             // Phase 6: 포트폴리오 평가 snapshot 빌드 + 일괄 저장
             Timer.Sample portfolioValSample = metrics.startSample();
-            Map<String, BigDecimal> userDeltaByUserId = new HashMap<>();
             List<PortfolioValuation> portfolioValuations = new ArrayList<>();
 
             for (Long portfolioId : portfolioDeltaSum.keySet()) {
@@ -154,7 +146,6 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
                 BigDecimal newCV = state != null ? state.currentValue() : BigDecimal.ZERO;
                 Long purchasedValue = meta != null ? meta.purchasedValue() : 0L;
                 Long assetCount = meta != null ? meta.assetCount() : 0L;
-                String userId = meta != null ? meta.userId() : null;
 
                 portfolioValuations.add(PortfolioValuation.builder()
                         .portfolioId(portfolioId)
@@ -163,11 +154,6 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
                         .profitRate(calculateProfitRate(purchasedValue, newCV))
                         .assetCount(assetCount)
                         .build());
-
-                if (userId != null) {
-                    BigDecimal delta = portfolioDeltaSum.get(portfolioId);
-                    userDeltaByUserId.merge(userId, delta, BigDecimal::add);
-                }
             }
             valuationRepository.bulkSavePortfolioPriceUpdateValuations(portfolioValuations);
             metrics.recordPhaseDuration(
@@ -177,47 +163,11 @@ public class ProfitCalculateService implements ProfitCalculationUseCase {
                     portfolioValSample
             );
 
-            // Phase 7: 유저 재계산 — 벌크 HINCRBYFLOAT + 메타데이터 프리패치 + 일괄 저장
-            Timer.Sample userFanoutSample = metrics.startSample();
-            if (!userDeltaByUserId.isEmpty()) {
-                recalculateUsersBulk(userDeltaByUserId);
-            }
-            metrics.recordPhaseDuration(
-                    ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION,
-                    ProfitWorkerMetrics.PHASE_USER_FANOUT,
-                    ProfitWorkerMetrics.RESULT_SUCCESS,
-                    userFanoutSample
-            );
-
             metrics.recordAffectedPortfolios(ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION, tasks.size());
-            metrics.recordAffectedUsers(ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION, userDeltaByUserId.size());
             result = ProfitWorkerMetrics.RESULT_SUCCESS;
         } finally {
             metrics.recordServiceDuration(ProfitWorkerMetrics.OPERATION_STOCK_PRICE_RECALCULATION, result, sample);
         }
-    }
-
-    private void recalculateUsersBulk(Map<String, BigDecimal> userDeltaByUserId) {
-        List<String> userIds = new ArrayList<>(userDeltaByUserId.keySet());
-        Map<String, UserStateSnapshot> userStates = userStateStore.bulkIncrementCurrentValuesAndFetchMetadata(userDeltaByUserId);
-
-        List<UserValuation> userValuations = new ArrayList<>();
-        for (String userId : userIds) {
-            UserStateSnapshot state = userStates.get(userId);
-            UserMetadata meta = state != null ? state.metadata() : null;
-            BigDecimal currentValue = state != null ? state.currentValue() : BigDecimal.ZERO;
-            Long purchasedValue = meta != null ? meta.purchasedValue() : 0L;
-            Long portfolioCount = meta != null ? meta.portfolioCount() : 0L;
-
-            userValuations.add(UserValuation.builder()
-                    .userId(userId)
-                    .purchasedValue(purchasedValue)
-                    .currentValue(roundToLong(currentValue))
-                    .profitRate(calculateProfitRate(purchasedValue, currentValue))
-                    .portfolioCount(portfolioCount)
-                    .build());
-        }
-        valuationRepository.bulkSaveUserPriceUpdateValuations(userValuations);
     }
 
     private Double calculateProfitRate(Long purchasedValue, BigDecimal currentValue) {

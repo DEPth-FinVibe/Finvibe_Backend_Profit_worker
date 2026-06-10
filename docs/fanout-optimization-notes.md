@@ -1,6 +1,6 @@
 # Profit Worker Fanout 최적화 검토
 
-이 문서는 주가 변경 이벤트 처리에서 비용이 큰 것으로 관측된 `bulk_prefetch`, `portfolio_fanout`, `user_fanout` 페이즈의 현재 동작과 최적화 후보를 정리한다.
+이 문서는 주가 변경 이벤트 처리에서 비용이 큰 것으로 관측된 `bulk_prefetch`, `portfolio_fanout` 페이즈의 현재 동작과 최적화 후보를 정리한다.
 
 ## 전제
 
@@ -22,7 +22,6 @@
 4. Redis에 portfolio current value 증분 반영
 5. 종목별 current value 저장
 6. `portfolio_fanout`
-7. `user_fanout`
 
 ## bulk_prefetch
 
@@ -58,8 +57,7 @@
 3. `bulkIncrementCurrentValues()` 결과로 받은 새 portfolio current value를 사용한다.
 4. `purchasedValue`, `currentValue`, `assetCount`로 `profitRate`를 계산한다.
 5. `PortfolioValuation`을 생성한다.
-6. metadata의 `userId`가 있으면 `userDeltaByUserId`에 delta를 누적한다.
-7. `bulkSavePortfolioValuations()`로 Redis snapshot을 pipeline 저장한다.
+6. `bulkSavePortfolioValuations()`로 Redis snapshot을 pipeline 저장한다.
 
 현재 비용 특성:
 
@@ -70,55 +68,13 @@
 
 ## user_fanout
 
-목적은 portfolio delta를 user 단위로 합산해 user valuation snapshot을 갱신하는 것이다.
+이 페이즈는 더 이상 가격 변경 재계산 경로에 존재하지 않는다.
 
-현재 동작:
+- 이전에는 `portfolio_fanout` 이후 user delta를 합산해 user valuation snapshot까지 갱신했다.
+- 현재는 가격 이벤트가 포트폴리오 valuation만 갱신하고, 유저 단위 계산은 이 경로에서 수행하지 않는다.
+- 따라서 아래 최적화 후보와 측정 지표도 portfolio 경로에만 초점을 맞춘다.
 
-1. `portfolio_fanout`에서 만든 `userDeltaByUserId`를 받는다.
-2. `bulkIncrementCurrentValues(userDeltaByUserId)`로 `usr:{userId}`의 `cvp`를 `HINCRBYFLOAT` 한다.
-3. `bulkFetchUserMetadata(userIds)`로 `pv`, `pc`를 pipeline 조회한다.
-4. JVM에서 `UserValuation`을 생성하고 `profitRate`를 계산한다.
-5. `bulkSaveUserValuations()`로 Redis snapshot을 pipeline 저장한다.
-
-현재 비용 특성:
-
-- affected user 수가 커지면 Redis pipeline이 최소 세 번 발생한다.
-- `HINCRBYFLOAT`, metadata read, snapshot write가 각각 별도 phase다.
-- user snapshot 역시 같은 user가 짧은 시간에 반복 저장될 수 있다.
-
-## 최적화 후보
-
-### 1. user current value increment와 metadata fetch 병합
-
-현재 `user_fanout`은 다음처럼 세 단계다.
-
-```text
-bulkIncrementCurrentValues(user)
-bulkFetchUserMetadata(user)
-bulkSaveUserValuations(user)
-```
-
-앞의 두 단계는 하나의 pipeline으로 합칠 수 있다.
-
-```text
-for each user:
-  HINCRBYFLOAT usr:{userId} cvp delta
-  HMGET usr:{userId} pv pc
-```
-
-기대 효과:
-
-- `user_fanout`의 Redis round-trip을 하나 줄인다.
-- `HINCRBYFLOAT` 이후 같은 pipeline에서 metadata를 읽으므로 갱신 후 current value와 metadata를 함께 사용해 snapshot을 만들 수 있다.
-
-주의점:
-
-- Spring Data Redis pipeline 결과 순서를 정확히 검증해야 한다.
-- 전용 결과 DTO가 필요하다. 예: `UserCurrentValueAndMetadata`.
-
-우선순위: 높음.
-
-### 2. portfolio current value increment와 metadata fetch 병합
+### 1. portfolio current value increment와 metadata fetch 병합
 
 현재 `bulk_prefetch`에서 portfolio metadata를 먼저 가져오고, 이후 별도 phase에서 portfolio `cvp`를 increment한다.
 
@@ -152,7 +108,7 @@ for each user:
 
 우선순위: 높음.
 
-### 3. 가격 변경용 snapshot 저장 필드 축소
+### 2. 가격 변경용 snapshot 저장 필드 축소
 
 가격 변경 이벤트에서 변하는 값은 주로 `cv`, `pr`, `ua`다.
 
@@ -178,16 +134,16 @@ user snapshot 저장도 `pv`, `cv`, `pr`, `pc`, `ua`를 모두 다시 쓴다.
 
 우선순위: 중간.
 
-### 4. fanout snapshot coalescing
+### 3. fanout snapshot coalescing
 
-주가 이벤트가 자주 들어오는 경우 같은 portfolio/user가 짧은 시간에 여러 번 valuation snapshot으로 저장된다.
+주가 이벤트가 자주 들어오는 경우 같은 portfolio가 짧은 시간에 여러 번 valuation snapshot으로 저장된다.
 
 개선 방향:
 
-- 가격 이벤트 처리 시 Redis 계산 상태(`pf:{id}.cvp`, `usr:{id}.cvp`)는 즉시 갱신한다.
+- 가격 이벤트 처리 시 Redis 계산 상태(`pf:{id}.cvp`)는 즉시 갱신한다.
 - dirty marker도 즉시 추가한다.
 - valuation snapshot 저장은 짧은 window로 합친다.
-- 예: 100ms 또는 500ms 동안 같은 portfolio/user는 마지막 상태만 snapshot 저장한다.
+- 예: 100ms 또는 500ms 동안 같은 portfolio는 마지막 상태만 snapshot 저장한다.
 
 기대 효과:
 
@@ -202,23 +158,23 @@ user snapshot 저장도 `pv`, `cv`, `pr`, `pc`, `ua`를 모두 다시 쓴다.
 
 우선순위: 중간. 트래픽 패턴이 고빈도라면 높음.
 
-### 5. write-back batch로 valuation 계산 일부 이동
+### 4. write-back batch로 valuation 계산 일부 이동
 
 더 큰 구조 변경으로, price worker는 계산 상태와 dirty marker만 갱신하고 batch writer가 snapshot을 읽어 DB valuation을 계산할 수 있다.
 
 개선 방향:
 
 - worker critical path:
-  - `pf:{id}.cvp`, `usr:{id}.cvp` 갱신
+  - `pf:{id}.cvp` 갱신
   - dirty set 추가
 - batch writer:
   - dirty 대상의 Redis hash를 읽음
-  - `pv`, `cvp`, `ac`, `pc` 기반으로 `profitRate` 계산
+  - `pv`, `cvp`, `ac` 기반으로 `profitRate` 계산
   - DB upsert
 
 기대 효과:
 
-- worker의 `portfolio_fanout`, `user_fanout` snapshot write 비용이 크게 줄어든다.
+- worker의 `portfolio_fanout` snapshot write 비용이 크게 줄어든다.
 
 주의점:
 
@@ -228,7 +184,7 @@ user snapshot 저장도 `pv`, `cv`, `pr`, `pc`, `ua`를 모두 다시 쓴다.
 
 우선순위: 낮음에서 중간. 단기 최적화보다는 구조 개선안이다.
 
-### 6. bounded virtual thread chunk 병렬화
+### 5. bounded virtual thread chunk 병렬화
 
 이미 pipeline으로 묶인 command를 command 단위로 virtual thread에 분산하는 것은 적합하지 않다.
 다만 매우 큰 fanout을 일정 크기의 chunk로 나누고, chunk pipeline을 제한된 동시성으로 실행하는 방식은 실험 가치가 있다.
@@ -249,7 +205,6 @@ chunk 4 pipeline
 
 - `bulkFetchStockHoldings`
 - portfolio increment + metadata fetch 병합 pipeline
-- user increment + metadata fetch 병합 pipeline
 - snapshot save pipeline
 
 주의점:
@@ -263,12 +218,11 @@ chunk 4 pipeline
 
 ## 권장 적용 순서
 
-1. `user_fanout`에서 user current value increment와 metadata fetch를 단일 pipeline으로 병합한다.
-2. `bulk_prefetch`에서 portfolio metadata 조회를 제거하고, portfolio current value increment와 metadata fetch를 단일 pipeline으로 병합한다.
-3. 가격 변경 경로의 snapshot 저장 필드를 줄인다.
-4. 필요하면 fanout snapshot coalescing을 도입한다.
-5. 큰 fanout batch에서만 bounded virtual thread chunk 병렬화를 실험한다.
-6. 그래도 worker critical path가 부담이면 write-back batch로 valuation 계산 일부 이동을 검토한다.
+1. `bulk_prefetch`에서 portfolio metadata 조회를 제거하고, portfolio current value increment와 metadata fetch를 단일 pipeline으로 병합한다.
+2. 가격 변경 경로의 snapshot 저장 필드를 줄인다.
+3. 필요하면 fanout snapshot coalescing을 도입한다.
+4. 큰 fanout batch에서만 bounded virtual thread chunk 병렬화를 실험한다.
+5. 그래도 worker critical path가 부담이면 write-back batch로 valuation 계산 일부 이동을 검토한다.
 
 ## 측정 지표
 
@@ -277,17 +231,13 @@ chunk 4 pipeline
 - `profit.worker.phase.duration`
   - `bulk_prefetch`
   - `portfolio_fanout`
-  - `user_fanout`
   - `pipeline_portfolio_incr`
   - `pipeline_stock_cv_set`
 - `profit.worker.redis.command.duration`
   - `pipeline_hmget_portfolio`
   - `pipeline_get_stock_holdings`
   - `pipeline_hincrbyfloat_portfolio_cv`
-  - `pipeline_hincrbyfloat_user_cv`
-  - `pipeline_hmget_user`
   - `pipeline_save_portfolio_valuations`
-  - `pipeline_save_user_valuations`
 - Kafka consumer lag
 - Redis CPU 사용률
 - Redis network in/out
@@ -301,7 +251,6 @@ chunk 4 pipeline
 
 - 같은 `(portfolioId, stockId)`의 `quantity`와 종목별 `current-value` 업데이트 순서가 깨지지 않는다.
 - 같은 portfolio의 여러 stock delta는 portfolio `cvp`에 반영하기 전에 합산된다.
-- user delta는 affected portfolio delta를 user별로 합산한 뒤 한 번만 반영된다.
 - portfolio 삭제 marker가 일반 valuation snapshot에 의해 되살아나지 않는다.
 - Redis pipeline 결과 개수가 예상과 다르면 실패 처리한다.
 - write-back batch가 읽는 필수 필드는 Redis hash에 항상 남아 있다.

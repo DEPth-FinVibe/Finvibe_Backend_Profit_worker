@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Finvibe Profit Worker Architecture Dossier</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --ink: #101820;
+      --paper: #f5efe2;
+      --paper-deep: #eadfc8;
+      --black: #0b1014;
+      --panel: rgba(16, 24, 32, .91);
+      --panel-soft: rgba(255, 250, 239, .86);
+      --line: rgba(16, 24, 32, .18);
+      --line-dark: rgba(245, 239, 226, .18);
+      --muted: #65727f;
+      --cream: #fff8e8;
+      --copper: #c66b2d;
+      --amber: #ffbc42;
+      --lime: #b6d653;
+      --aqua: #26c6b8;
+      --blue: #5378d8;
+      --red: #d3483d;
+      --violet: #7e5bef;
+      --shadow: 0 24px 80px rgba(16, 24, 32, .22);
+      --radius: 26px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: "IBM Plex Sans KR", sans-serif;
+      line-height: 1.72;
+      background:
+        radial-gradient(circle at 8% 6%, rgba(255, 188, 66, .34), transparent 24rem),
+        radial-gradient(circle at 95% 18%, rgba(38, 198, 184, .20), transparent 30rem),
+        linear-gradient(135deg, rgba(16,24,32,.06) 25%, transparent 25%) 0 0 / 18px 18px,
+        var(--paper);
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: .18;
+      mix-blend-mode: multiply;
+      background-image:
+        linear-gradient(rgba(16,24,32,.12) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(16,24,32,.12) 1px, transparent 1px);
+      background-size: 64px 64px;
+      mask-image: radial-gradient(circle at center, black, transparent 78%);
+    }
+    a { color: inherit; }
+    code, pre { font-family: "JetBrains Mono", monospace; }
+    code {
+      padding: 2px 7px;
+      border-radius: 999px;
+      color: #12202b;
+      background: rgba(198, 107, 45, .12);
+      border: 1px solid rgba(198, 107, 45, .22);
+      font-size: .88em;
+      white-space: nowrap;
+    }
+    .page { width: min(1460px, calc(100vw - 34px)); margin: 0 auto; padding: 28px 0 90px; }
+    .hero {
+      position: relative;
+      min-height: 520px;
+      display: grid;
+      grid-template-columns: minmax(0, 1.08fr) minmax(340px, .92fr);
+      gap: 28px;
+      align-items: stretch;
+      margin-bottom: 28px;
+    }
+    .hero-copy {
+      position: relative;
+      overflow: hidden;
+      border-radius: 36px;
+      padding: clamp(28px, 5vw, 64px);
+      background: var(--black);
+      color: var(--cream);
+      box-shadow: var(--shadow);
+      border: 1px solid rgba(255,255,255,.12);
+    }
+    .hero-copy::before {
+      content: "";
+      position: absolute;
+      width: 540px;
+      height: 540px;
+      right: -180px;
+      top: -220px;
+      border-radius: 50%;
+      background: conic-gradient(from 20deg, var(--amber), var(--aqua), var(--violet), var(--amber));
+      filter: blur(14px);
+      opacity: .28;
+      animation: orbit 16s linear infinite;
+    }
+    .hero-copy::after {
+      content: "PRICE→DELTA→VALUATION";
+      position: absolute;
+      right: -76px;
+      bottom: 36px;
+      transform: rotate(-90deg);
+      color: rgba(255, 248, 232, .16);
+      font-family: "JetBrains Mono", monospace;
+      letter-spacing: .2em;
+      font-size: 13px;
+    }
+    @keyframes orbit { to { transform: rotate(360deg); } }
+    .eyebrow {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 13px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.16);
+      color: var(--amber);
+      font-family: "JetBrains Mono", monospace;
+      font-size: 12px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .eyebrow::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 22px var(--lime); }
+    h1 {
+      position: relative;
+      margin: 26px 0 20px;
+      font-family: "Gowun Batang", serif;
+      font-weight: 700;
+      font-size: clamp(42px, 7.5vw, 102px);
+      line-height: .96;
+      letter-spacing: -.055em;
+    }
+    .hero-lead {
+      position: relative;
+      max-width: 760px;
+      margin: 0;
+      color: rgba(255, 248, 232, .78);
+      font-size: clamp(16px, 2vw, 21px);
+    }
+    .hero-stats {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-top: 34px;
+    }
+    .stat {
+      padding: 18px 16px;
+      border-radius: 20px;
+      background: rgba(255,255,255,.07);
+      border: 1px solid rgba(255,255,255,.13);
+    }
+    .stat strong { display: block; color: var(--amber); font-family: "JetBrains Mono", monospace; font-size: 28px; line-height: 1; }
+    .stat span { display: block; margin-top: 8px; color: rgba(255, 248, 232, .67); font-size: 13px; }
+    .hero-map {
+      position: relative;
+      overflow: hidden;
+      border-radius: 36px;
+      padding: 24px;
+      background: var(--panel-soft);
+      border: 1px solid rgba(16,24,32,.14);
+      box-shadow: var(--shadow);
+    }
+    .map-grid { display: grid; gap: 14px; height: 100%; }
+    .map-node {
+      position: relative;
+      min-height: 88px;
+      padding: 18px 18px 18px 22px;
+      border-radius: 23px;
+      background: rgba(255,255,255,.58);
+      border: 1px solid var(--line);
+      box-shadow: 0 10px 36px rgba(16,24,32,.07);
+    }
+    .map-node::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 18px;
+      bottom: 18px;
+      width: 5px;
+      border-radius: 999px;
+      background: var(--copper);
+    }
+    .map-node:nth-child(2)::before { background: var(--blue); }
+    .map-node:nth-child(3)::before { background: var(--aqua); }
+    .map-node:nth-child(4)::before { background: var(--red); }
+    .map-node b { display: block; font-size: 18px; margin-bottom: 3px; }
+    .map-node p { margin: 0; color: var(--muted); font-size: 14px; }
+    .layout { display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: 28px; align-items: start; }
+    .toc {
+      position: sticky;
+      top: 18px;
+      border-radius: 28px;
+      background: rgba(16, 24, 32, .93);
+      color: var(--cream);
+      border: 1px solid rgba(255,255,255,.12);
+      box-shadow: var(--shadow);
+      padding: 20px;
+    }
+    .toc h2 { margin: 0 0 14px; color: var(--amber); font-family: "JetBrains Mono", monospace; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
+    .toc a {
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      gap: 8px;
+      align-items: center;
+      padding: 10px 0;
+      color: rgba(255,248,232,.72);
+      text-decoration: none;
+      font-size: 14px;
+      border-top: 1px solid rgba(255,255,255,.08);
+    }
+    .toc a:hover { color: var(--cream); }
+    .toc a span { color: var(--amber); font-family: "JetBrains Mono", monospace; }
+    .content { display: grid; gap: 28px; }
+    .section {
+      position: relative;
+      overflow: hidden;
+      border-radius: var(--radius);
+      padding: clamp(22px, 3vw, 36px);
+      background: rgba(255, 250, 239, .88);
+      border: 1px solid rgba(16,24,32,.14);
+      box-shadow: var(--shadow);
+    }
+    .section.dark { background: var(--panel); color: var(--cream); border-color: var(--line-dark); }
+    .section.dark code { color: #fff2c4; background: rgba(255,188,66,.12); border-color: rgba(255,188,66,.22); }
+    .section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 14px; }
+    h2 {
+      margin: 0;
+      font-family: "Gowun Batang", serif;
+      font-size: clamp(28px, 4vw, 48px);
+      line-height: 1.05;
+      letter-spacing: -.04em;
+    }
+    .badge {
+      flex: 0 0 auto;
+      padding: 8px 11px;
+      border-radius: 999px;
+      background: rgba(198,107,45,.14);
+      color: var(--copper);
+      border: 1px solid rgba(198,107,45,.24);
+      font-family: "JetBrains Mono", monospace;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+    .dark .badge { background: rgba(255,188,66,.13); color: var(--amber); border-color: rgba(255,188,66,.25); }
+    .intro { max-width: 980px; margin: 0 0 22px; color: var(--muted); font-size: 17px; }
+    .dark .intro { color: rgba(255,248,232,.68); }
+    .diagram {
+      overflow: auto;
+      border-radius: 24px;
+      padding: 18px;
+      margin: 18px 0;
+      background: rgba(255,255,255,.64);
+      border: 1px solid rgba(16,24,32,.12);
+    }
+    .dark .diagram { background: rgba(0,0,0,.22); border-color: rgba(255,255,255,.12); }
+    .mermaid { min-width: 760px; }
+    .cards { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 16px; margin-top: 18px; }
+    .cards.two { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .card {
+      position: relative;
+      padding: 19px;
+      border-radius: 22px;
+      background: rgba(255,255,255,.62);
+      border: 1px solid rgba(16,24,32,.13);
+    }
+    .dark .card { background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.12); }
+    .mini { color: var(--copper); font-family: "JetBrains Mono", monospace; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+    .dark .mini { color: var(--amber); }
+    h3 { margin: 7px 0 7px; font-size: 20px; line-height: 1.25; }
+    .card p, .card li { color: var(--muted); font-size: 14px; margin: 0; }
+    .dark .card p, .dark .card li { color: rgba(255,248,232,.68); }
+    .lane {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(180px, 1fr));
+      gap: 14px;
+      overflow-x: auto;
+      padding-bottom: 10px;
+    }
+    .step {
+      min-height: 230px;
+      padding: 18px;
+      border-radius: 24px;
+      background: linear-gradient(180deg, rgba(255,255,255,.72), rgba(234,223,200,.68));
+      border: 1px solid rgba(16,24,32,.13);
+    }
+    .step-num { font-family: "JetBrains Mono", monospace; color: var(--copper); font-size: 13px; }
+    .step h3 { font-size: 18px; }
+    .step p { color: var(--muted); font-size: 14px; margin: 0; }
+    .step ul { padding-left: 18px; margin: 10px 0 0; color: var(--muted); font-size: 13px; }
+    .key-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px; }
+    .key-card {
+      border-radius: 23px;
+      padding: 18px;
+      background: rgba(255,255,255,.62);
+      border: 1px solid rgba(16,24,32,.13);
+    }
+    .key-card h3 { font-family: "JetBrains Mono", monospace; font-size: 16px; }
+    dl { display: grid; grid-template-columns: 82px 1fr; gap: 8px 12px; margin: 12px 0 0; }
+    dt { color: var(--copper); font-weight: 700; font-size: 13px; }
+    dd { margin: 0; color: var(--muted); font-size: 13px; }
+    .matrix { width: 100%; border-collapse: collapse; overflow: hidden; border-radius: 18px; font-size: 14px; }
+    .matrix th, .matrix td { padding: 13px 14px; border-bottom: 1px solid rgba(16,24,32,.12); vertical-align: top; }
+    .matrix th { text-align: left; color: var(--cream); background: var(--black); font-family: "JetBrains Mono", monospace; font-size: 12px; }
+    .matrix td { background: rgba(255,255,255,.58); }
+    .priority { font-family: "JetBrains Mono", monospace; font-weight: 700; }
+    .p1 { color: var(--red); } .p2 { color: var(--copper); } .p3 { color: var(--blue); }
+    .callout {
+      margin-top: 18px;
+      padding: 18px 20px;
+      border-radius: 22px;
+      background: rgba(255, 188, 66, .18);
+      border: 1px solid rgba(198,107,45,.24);
+      color: #4a321d;
+    }
+    .dark .callout { background: rgba(255, 188, 66, .12); border-color: rgba(255, 188, 66, .24); color: rgba(255,248,232,.82); }
+    .source {
+      margin-top: 18px;
+      padding: 16px;
+      border-radius: 19px;
+      background: rgba(16,24,32,.05);
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .dark .source { background: rgba(255,255,255,.06); color: rgba(255,248,232,.62); }
+    .source ul { margin: 8px 0 0; padding-left: 18px; }
+    .legend { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+    .chip { display: inline-flex; align-items: center; gap: 8px; padding: 8px 11px; border-radius: 999px; background: rgba(255,255,255,.62); border: 1px solid rgba(16,24,32,.12); font-size: 13px; color: var(--muted); }
+    .chip i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; background: var(--copper); }
+    .footer { margin-top: 28px; color: var(--muted); text-align: center; font-size: 13px; }
+    @media (max-width: 1040px) {
+      .hero, .layout { grid-template-columns: 1fr; }
+      .toc { position: static; }
+      .hero-stats, .cards, .cards.two, .key-grid { grid-template-columns: 1fr; }
+    }
+    @media print {
+      body { background: white; }
+      .toc { display: none; }
+      .layout, .hero { display: block; }
+      .section, .hero-copy, .hero-map { box-shadow: none; break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div class="hero-copy">
+        <div class="eyebrow">Code-derived architecture dossier</div>
+        <h1>Profit Worker<br/>운영 해부도</h1>
+        <p class="hero-lead">
+          실제 Java 코드 기준으로 정리한 Finvibe profit worker 문서다. 이 서비스는 Kafka 배치 이벤트를 받아 Redis 운영 상태를 갱신하고,
+          포트폴리오·유저 valuation snapshot을 dirty set으로 staging하는 수익률 계산 워커다.
+        </p>
+        <div class="hero-stats">
+          <div class="stat"><strong>3</strong><span>Kafka topic ingress</span></div>
+          <div class="stat"><strong>7</strong><span>주가 재계산 단계</span></div>
+          <div class="stat"><strong>2</strong><span>valuation aggregate 축</span></div>
+          <div class="stat"><strong>10+</strong><span>Redis key family</span></div>
+        </div>
+      </div>
+      <div class="hero-map">
+        <div class="map-grid">
+          <div class="map-node"><b>Kafka Batch Ingress</b><p><code>StockPriceEventConsumer</code>, <code>CacheUpdateEventConsumer</code>가 <code>List&lt;String&gt;</code> payload를 수신한다.</p></div>
+          <div class="map-node"><b>Application Ports</b><p>Use case는 Redis adapter를 직접 알지 않고 <code>PortfolioStateStore</code>, <code>UserStateStore</code>, <code>ValuationRepository</code> 포트로 통신한다.</p></div>
+          <div class="map-node"><b>Redis Operational State</b><p>역인덱스, 포트폴리오 hash, 보유종목 leaf key, 유저 hash/set이 계산의 working set이다.</p></div>
+          <div class="map-node"><b>Dirty Snapshot Staging</b><p>valuation hash를 갱신한 뒤 <code>dirty:*</code> set에 ID를 넣어 후속 write-back 대상임을 표시한다.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <div class="layout">
+      <nav class="toc" aria-label="문서 섹션">
+        <h2>Navigation</h2>
+        <a href="#architecture"><span>01</span> 전체 아키텍처</a>
+        <a href="#events"><span>02</span> 이벤트 입력 계층</a>
+        <a href="#price-flow"><span>03</span> 가격 업데이트 순서</a>
+        <a href="#state-model"><span>04</span> Redis 상태 모델</a>
+        <a href="#cache-flow"><span>05</span> 거래·소유권 캐시</a>
+        <a href="#metrics"><span>06</span> 관측 지점</a>
+        <a href="#performance"><span>07</span> 성능 개선 포인트</a>
+      </nav>
+
+      <div class="content">
+        <section id="architecture" class="section">
+          <div class="section-head"><h2>1. 전체 아키텍처</h2><span class="badge">hexagonal + redis state</span></div>
+          <p class="intro">
+            현재 코드의 중심은 Spring Boot 4 / Java 21 기반 worker다. 외부 입력은 Kafka, 계산 상태와 valuation staging은 Redis가 담당한다.
+            JPA와 MariaDB/H2 의존성은 존재하지만, 확인된 happy-path 계산·저장 adapter는 Redis 중심이다.
+          </p>
+          <div class="diagram">
+            <pre class="mermaid">
+flowchart LR
+  classDef ingress fill:#101820,stroke:#ffbc42,color:#fff8e8
+  classDef app fill:#fff8e8,stroke:#c66b2d,color:#101820
+  classDef redis fill:#e8fff8,stroke:#26c6b8,color:#101820
+  classDef dirty fill:#fff0d6,stroke:#d3483d,color:#101820
+
+  subgraph Kafka["Kafka topics"]
+    K1["market.stock-price-updated.v1"]
+    K2["trade.trade-executed.v1"]
+    K3["asset.portfolio-group-changed.v1"]
+  end
+
+  subgraph Ingress["Infrastructure / Kafka"]
+    C1["StockPriceEventConsumer"]
+    C2["CacheUpdateEventConsumer"]
+  end
+
+  subgraph Application["Application services"]
+    S1["ProfitCalculateService"]
+    S2["CacheUpdateService"]
+    M["ProfitWorkerMetrics"]
+  end
+
+  subgraph Ports["Output ports"]
+    P1["PortfolioStateStore"]
+    P2["UserStateStore"]
+    P3["ValuationRepository"]
+  end
+
+  subgraph Redis["Redis adapters"]
+    R1["RedisPortfolioStateStore"]
+    R2["RedisUserStateStore"]
+    R3["RedisValuationRepositoryAdapter"]
+  end
+
+  subgraph State["Redis state"]
+    A["stock:{stockId}:portfolios"]
+    B["pf:{portfolioId}"]
+    C["portfolio:{id}:stock:{stockId}:quantity/current-value"]
+    D["usr:{userId}"]
+    E["user:{userId}:portfolios"]
+    F["dirty:portfolio-valuations / dirty:user-valuations"]
+  end
+
+  K1 --> C1
+  C1 --> S1
+  K2 --> C2
+  K3 --> C2
+  C2 --> S2
+  S1 --> P1
+  S1 --> P2
+  S1 --> P3
+  S2 --> P1
+  S2 --> P2
+  S2 --> P3
+  S1 --> M
+  S2 --> M
+  C1 --> M
+  C2 --> M
+  P1 --> R1
+  R1 --> A
+  R1 --> B
+  R1 --> C
+  P2 --> R2
+  R2 --> B
+  R2 --> D
+  R2 --> E
+  P3 --> R3
+  R3 --> B
+  R3 --> D
+  R3 --> F
+
+  class K1,K2,K3,C1,C2 ingress
+  class S1,S2,M,P1,P2,P3 app
+  class R1,R2,R3,A,B,C,D,E redis
+  class F dirty
+            </pre>
+          </div>
+          <div class="cards">
+            <article class="card"><div class="mini">domain boundary</div><h3>서비스는 포트에 의존</h3><p>계산 로직은 Redis 구현체 대신 output port interface를 사용한다. 변경 가능한 저장소 구현은 adapter 계층으로 밀려 있다.</p></article>
+            <article class="card"><div class="mini">working set</div><h3>Redis가 계산의 source of truth</h3><p>주가 fanout은 Redis 역인덱스와 leaf 보유 수량/current-value를 기준으로 수행된다.</p></article>
+            <article class="card"><div class="mini">write-back marker</div><h3>dirty set으로 후속 동기화 표시</h3><p>valuation hash 업데이트 후 dirty set에 ID를 추가한다. 이 repository 안에는 dirty set consumer가 확인되지 않는다.</p></article>
+          </div>
+          <div class="source"><strong>근거 코드</strong><ul><li><code>src/main/java/depth/finvibe/profit/worker/infrastructure/kafka/*Consumer.java</code></li><li><code>src/main/java/depth/finvibe/profit/worker/application/*Service.java</code></li><li><code>src/main/java/depth/finvibe/profit/worker/infrastructure/redis/*Adapter.java</code></li><li><code>src/main/resources/application.yaml</code></li></ul></div>
+        </section>
+
+        <section id="events" class="section dark">
+          <div class="section-head"><h2>2. 이벤트 입력 계층</h2><span class="badge">batch normalization</span></div>
+          <p class="intro">
+            Kafka listener 설정은 batch mode이며 기본 concurrency는 3, max poll records는 50이다. Consumer는 JSON 문자열 목록을 DTO로 역직렬화하고, use case request로 변환한다.
+          </p>
+          <div class="diagram">
+            <pre class="mermaid">
+flowchart TB
+  A["Kafka batch: List#lt;String#gt;"] --> B{"topic"}
+  B -->|market.stock-price-updated.v1| C["StockPriceUpdatedEvent"]
+  C --> C1["stockId, price, updatedAt"]
+  C1 --> C2["batch 내 stockId dedupe"]
+  C2 --> C3["ProfitCalculationRequest"]
+
+  B -->|trade.trade-executed.v1| D["PortfolioTradeEvent"]
+  D --> D1["BUY / SELL 검증"]
+  D1 --> D2["PortfolioCacheUpdateRequest"]
+
+  B -->|asset.portfolio-group-changed.v1| E["PortfolioUserEvent"]
+  E --> E1{"eventType"}
+  E1 -->|UPDATED| E2["metrics skipped"]
+  E1 -->|CREATED / DELETED| E3["UserCacheUpdateRequest"]
+            </pre>
+          </div>
+          <div class="cards">
+            <article class="card"><div class="mini">stock price</div><h3>정수 가격만 허용</h3><p><code>BigDecimal.longValueExact()</code>로 가격을 Long으로 변환한다. 소수 가격이 오면 예외다.</p></article>
+            <article class="card"><div class="mini">trade</div><h3>BUY/SELL만 지원</h3><p>거래 이벤트 amount는 양수여야 하며, type은 <code>STOCK_BUY</code> 또는 <code>STOCK_SELL</code>로 변환된다.</p></article>
+            <article class="card"><div class="mini">ownership</div><h3>UPDATED는 의도적으로 skip</h3><p>소유권 캐시에는 CREATED/DELETED만 영향을 준다. UPDATED는 skipped metric을 기록하고 처리하지 않는다.</p></article>
+          </div>
+        </section>
+
+        <section id="price-flow" class="section">
+          <div class="section-head"><h2>3. 가격 업데이트 이벤트가 도착했을 때</h2><span class="badge">7-stage fanout</span></div>
+          <p class="intro">
+            주가 변경은 “전체 포트폴리오 재계산”이 아니다. 변경된 종목을 가진 포트폴리오만 찾고, 기존 종목별 평가액과 신규 평가액의 delta만 aggregate hash에 누적한다.
+          </p>
+          <div class="lane" aria-label="가격 업데이트 순차 단계">
+            <article class="step"><div class="step-num">01 / consume</div><h3>Kafka batch 수신</h3><p><code>StockPriceEventConsumer.consumeStockPriceUpdatedEvents</code>가 payload 목록을 받는다.</p><ul><li>Timer 시작</li><li>JSON → <code>StockPriceUpdatedEvent</code></li></ul></article>
+            <article class="step"><div class="step-num">02 / dedupe</div><h3>stockId 기준 최신값 압축</h3><p><code>LinkedHashMap</code>에 stockId를 key로 넣어 같은 배치의 중복 종목을 제거한다.</p><ul><li>batch size / deduplicated size 기록</li><li>event age 기록</li></ul></article>
+            <article class="step"><div class="step-num">03 / reverse index</div><h3>영향 포트폴리오 조회</h3><p><code>stock:{stockId}:portfolios</code> set을 pipeline <code>SMEMBERS</code>로 읽는다.</p><ul><li>stockId → portfolioIds</li><li>작업 task 생성</li></ul></article>
+            <article class="step"><div class="step-num">04 / prefetch</div><h3>보유 수량·기존 평가액 조회</h3><p>각 portfolio-stock 조합에 대해 quantity와 stock current-value를 pipeline <code>GET</code>한다.</p><ul><li><code>portfolio:{id}:stock:{stockId}:quantity</code></li><li><code>...:current-value</code></li></ul></article>
+            <article class="step"><div class="step-num">05 / delta</div><h3>메모리에서 delta 계산</h3><p><code>newPrice * quantity - oldStockCurrentValue</code>를 계산하고 portfolio별 delta를 합산한다.</p><ul><li>Redis 호출 없음</li><li>quantity 0은 skip</li></ul></article>
+            <article class="step"><div class="step-num">06 / aggregate update</div><h3>포트폴리오 aggregate 반영</h3><p><code>pf:{portfolioId}</code>의 <code>cvp</code>에 delta를 pipeline <code>HINCRBYFLOAT</code>로 누적하고 metadata를 <code>HMGET</code>한다.</p><ul><li>portfolio valuation build</li><li>stock current-value SET</li></ul></article>
+            <article class="step"><div class="step-num">07 / snapshot save</div><h3>포트폴리오 snapshot 저장</h3><p>계산된 portfolio valuation을 저장하고 dirty set과 가격 재계산 메트릭을 갱신한다.</p><ul><li><code>bulkSavePortfolioPriceUpdateValuations(...)</code></li><li>affected portfolio 기록</li></ul></article>
+          </div>
+          <div class="diagram">
+            <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant K as Kafka
+  participant C as StockPriceEventConsumer
+  participant S as ProfitCalculateService
+  participant P as RedisPortfolioStateStore
+  participant V as RedisValuationRepositoryAdapter
+  participant R as Redis
+
+  K->>C: List#lt;String#gt; stock price payloads
+  C->>C: JSON parse + stockId dedupe
+  C->>S: updateProfitsByStockPriceChanges(requests)
+  S->>P: bulkFindPortfolioIdsByStockIds(stockIds)
+  P->>R: pipeline SMEMBERS stock:{stockId}:portfolios
+  S->>P: bulkFetchStockHoldings(portfolioId, stockId)
+  P->>R: pipeline GET quantity + current-value
+  S->>S: newStockCV, delta, portfolioDeltaSum 계산
+  S->>P: bulkIncrementCurrentValuesAndFetchMetadata(portfolioDeltaSum)
+  P->>R: pipeline HINCRBYFLOAT pf:{id}.cvp + HMGET pv/ac/u
+  S->>P: bulkSetStockCurrentValues(newStockCurrentValues)
+  P->>R: pipeline SET portfolio:{id}:stock:{stockId}:current-value
+  S->>V: bulkSavePortfolioPriceUpdateValuations(...)
+  V->>R: pipeline HMSET cv/pr/ua + SADD dirty:portfolio-valuations
+            </pre>
+          </div>
+          <div class="callout"><strong>핵심 불변식:</strong> 가격 이벤트 흐름에서 purchased value와 asset/portfolio count는 바꾸지 않는다. 가격 변화로 바뀌는 것은 포트폴리오 current value와 profit rate다.</div>
+        </section>
+
+        <section id="state-model" class="section">
+          <div class="section-head"><h2>4. Redis 상태 모델</h2><span class="badge">key family atlas</span></div>
+          <p class="intro">이 worker는 Redis key family를 함께 봐야 이해가 빠르다. 아래 표는 코드에 등장하는 주요 key, 타입, 역할, 쓰기 주체를 묶은 지도다.</p>
+          <div class="key-grid">
+            <article class="key-card"><h3>stock:{stockId}:portfolios</h3><dl><dt>Type</dt><dd>Set</dd><dt>Role</dt><dd>종목 → 보유 포트폴리오 역인덱스</dd><dt>Read</dt><dd>가격 fanout의 첫 단계</dd><dt>Write</dt><dd>매수 시 add, 전량 매도 시 remove</dd></dl></article>
+            <article class="key-card"><h3>pf:{portfolioId}</h3><dl><dt>Type</dt><dd>Hash</dd><dt>Fields</dt><dd><code>pv</code>, <code>cv</code>, <code>cvp</code>, <code>pr</code>, <code>ac</code>, <code>u</code>, <code>del</code>, <code>ua</code></dd><dt>Role</dt><dd>포트폴리오 aggregate + owner mapping</dd><dt>Write</dt><dd>state store와 valuation adapter 모두 write</dd></dl></article>
+            <article class="key-card"><h3>portfolio:{id}:stocks</h3><dl><dt>Type</dt><dd>Set</dd><dt>Role</dt><dd>포트폴리오가 보유한 stockId 목록</dd><dt>Write</dt><dd>매수/전량매도 시 membership 변경</dd><dt>Use</dt><dd>삭제 정리, aggregate 보조 데이터</dd></dl></article>
+            <article class="key-card"><h3>portfolio:{id}:stock:{stockId}:quantity</h3><dl><dt>Type</dt><dd>String decimal</dd><dt>Role</dt><dd>포트폴리오 내 종목 보유 수량</dd><dt>Read</dt><dd>가격 변경 시 신규 종목 평가액 계산</dd><dt>Write</dt><dd>거래 이벤트 BUY/SELL</dd></dl></article>
+            <article class="key-card"><h3>portfolio:{id}:stock:{stockId}:current-value</h3><dl><dt>Type</dt><dd>String decimal</dd><dt>Role</dt><dd>직전 종목별 평가액</dd><dt>Read</dt><dd>delta = 신규 평가액 - 직전 평가액</dd><dt>Write</dt><dd>가격 이벤트 후 pipeline SET</dd></dl></article>
+            <article class="key-card"><h3>usr:{userId}</h3><dl><dt>Type</dt><dd>Hash</dd><dt>Fields</dt><dd><code>pv</code>, <code>cv</code>, <code>cvp</code>, <code>pr</code>, <code>pc</code>, <code>ua</code></dd><dt>Role</dt><dd>유저 aggregate valuation</dd><dt>Write</dt><dd>유저 상태 store와 valuation adapter</dd></dl></article>
+            <article class="key-card"><h3>user:{userId}:portfolios</h3><dl><dt>Type</dt><dd>Set</dd><dt>Role</dt><dd>유저 → 포트폴리오 목록</dd><dt>Write</dt><dd>소유권 CREATED/DELETED</dd><dt>Read</dt><dd><code>calculateCurrentValue</code> fallback/캐시 갱신 흐름</dd></dl></article>
+            <article class="key-card"><h3>dirty:*</h3><dl><dt>Type</dt><dd>Set</dd><dt>Keys</dt><dd><code>dirty:portfolio-valuations</code>, <code>dirty:user-valuations</code>, <code>dirty:portfolio-valuation-deletions</code></dd><dt>Role</dt><dd>변경 snapshot의 write-back 대상 표시</dd><dt>Write</dt><dd>valuation adapter</dd></dl></article>
+          </div>
+        </section>
+
+        <section id="cache-flow" class="section dark">
+          <div class="section-head"><h2>5. 거래·소유권 이벤트 캐시 갱신</h2><span class="badge">state maintenance</span></div>
+          <p class="intro">가격 이벤트가 current value를 움직인다면, 거래와 포트폴리오 소유권 이벤트는 역인덱스·구매액·수량·카운트 같은 계산 기반 캐시를 유지한다.</p>
+          <div class="diagram">
+            <pre class="mermaid">
+flowchart LR
+  subgraph Trade["trade.trade-executed.v1"]
+    A["PortfolioTradeEvent"] --> B{"BUY or SELL"}
+    B -->|BUY| C["increase quantity"]
+    C --> D["add stock reverse index"]
+    C --> E["add portfolio pv/cv/stock cv"]
+    E --> F["if new holding: assetCount +1"]
+    F --> G["owner user pv +"]
+    B -->|SELL| H["decrease quantity"]
+    H --> I["if zero: remove reverse index"]
+    H --> J["subtract portfolio pv/cv/stock cv"]
+    J --> K["if removed: assetCount -1"]
+    K --> L["owner user pv -"]
+  end
+
+  subgraph Owner["asset.portfolio-group-changed.v1"]
+    O["PortfolioUserEvent"] --> P{"eventType"}
+    P -->|UPDATED| Q["skip"]
+    P -->|CREATED| R["map pf.u + user portfolio set"]
+    R --> S["user pv + portfolio pv"]
+    S --> T["user portfolioCount +1"]
+    P -->|DELETED| U["remove mapping"]
+    U --> V["user pv - portfolio pv"]
+    V --> W["user portfolioCount -1"]
+    W --> X["mark deleted + delete portfolio state"]
+  end
+            </pre>
+          </div>
+          <div class="cards two">
+            <article class="card"><div class="mini">portfolio cache update</div><h3>배치 입력이지만 내부 갱신은 이벤트별 적용</h3><p><code>updatePortfolioCaches</code>는 요청들을 순회하며 Redis state를 갱신하고, 변경된 포트폴리오/유저 ID를 모아 valuation snapshot을 bulk 저장한다.</p></article>
+            <article class="card"><div class="mini">user cache update</div><h3>삭제는 valuation deletion marker까지 남김</h3><p>포트폴리오 삭제 이벤트는 owner mapping 제거, user aggregate 감소, portfolio valuation 삭제 표시, portfolio Redis state 삭제를 수행한다.</p></article>
+          </div>
+        </section>
+
+        <section id="metrics" class="section">
+          <div class="section-head"><h2>6. 관측 지점</h2><span class="badge">prometheus-ready</span></div>
+          <p class="intro">Actuator Prometheus가 노출되며, 코드에는 listener/service/phase/Redis command 단위의 timer와 batch/affected/event-age 지표가 심어져 있다.</p>
+          <table class="matrix">
+            <thead><tr><th>Metric</th><th>의미</th><th>주요 태그</th><th>운영에서 보는 법</th></tr></thead>
+            <tbody>
+              <tr><td><code>profit.worker.listener.duration</code></td><td>Kafka consumer 전체 처리 시간</td><td>event_type, result</td><td>topic별 end-to-end listener 지연 확인</td></tr>
+              <tr><td><code>profit.worker.service.duration</code></td><td>application service 처리 시간</td><td>operation, result</td><td>가격 재계산 vs 캐시 갱신 병목 분리</td></tr>
+              <tr><td><code>profit.worker.phase.duration</code></td><td>주가 재계산 내부 phase 시간</td><td>operation, phase, result</td><td>reverse index, prefetch, compute, fanout 병목 확인</td></tr>
+              <tr><td><code>profit.worker.redis.command.duration</code></td><td>Redis 명령/pipeline 시간</td><td>command, result</td><td>pipeline별 round-trip과 Redis 부하 확인</td></tr>
+              <tr><td><code>profit.worker.batch.size</code> / <code>deduplicated.size</code></td><td>수신 배치와 dedupe 후 작업량</td><td>event_type</td><td>stockId 중복률과 max.poll.records 튜닝 근거</td></tr>
+              <tr><td><code>profit.worker.event.age</code></td><td>이벤트 발생 시각부터 처리 시각까지 지연</td><td>event_type</td><td>Kafka lag와 upstream 지연의 체감 지표</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="performance" class="section dark">
+          <div class="section-head"><h2>7. 성능 개선 포인트</h2><span class="badge">ranked backlog</span></div>
+          <p class="intro">현재 코드는 이미 주가 fanout에서 batch·dedupe·Redis pipeline·delta update 전략을 사용한다. 다음 개선안은 실제 코드에서 관찰된 병목 후보와 안정성 리스크를 기준으로 우선순위를 매겼다.</p>
+          <table class="matrix">
+            <thead><tr><th>우선순위</th><th>개선 포인트</th><th>현재 코드 근거</th><th>기대 효과 / 주의점</th></tr></thead>
+            <tbody>
+              <tr><td class="priority p1">P1</td><td>금융 금액 누적에서 <code>double</code> 기반 <code>HINCRBYFLOAT</code> 제거 또는 fixed-point 전략 도입</td><td><code>RedisPortfolioStateStore</code>, <code>RedisUserStateStore</code>가 <code>BigDecimal</code> delta를 <code>doubleValue()</code>로 변환해 <code>cvp</code>에 누적한다.</td><td>장기 누적 오차 리스크를 줄인다. 원 단위 정수면 scaled long <code>HINCRBY</code>, 소수 수량까지 보존해야 하면 정해진 scale의 fixed-point 또는 Lua 기반 decimal string 갱신을 검토한다.</td></tr>
+              <tr><td class="priority p1">P1</td><td>거래 이벤트 캐시 갱신도 pipeline/bulk화</td><td><code>CacheUpdateService.updatePortfolioCaches</code>는 batch를 받지만 각 request마다 quantity 조회/쓰기, set add/remove, hash increment를 개별 호출한다.</td><td>거래 폭주 시 Redis round-trip을 크게 줄인다. 단, BUY/SELL 순서가 의미를 가지므로 같은 portfolio-stock 내 이벤트 순서를 보존하거나 batch 내 netting 규칙을 명확히 해야 한다.</td></tr>
+              <tr><td class="priority p1">P1</td><td>주가 dedupe 기준을 “배치 순서”가 아니라 event timestamp/offset 정책으로 명확화</td><td><code>LinkedHashMap.put(stockId,event)</code>는 동일 batch 안에서 나중에 순회된 payload가 최신이라고 가정한다.</td><td>Kafka partition/order 보장이 stockId 단위로 맞지 않거나 재시도·재배치가 섞이면 오래된 가격이 최신 가격을 덮을 수 있다. key를 stockId로 partition하거나 <code>updatedAt</code> 비교 정책을 명시한다.</td></tr>
+              <tr><td class="priority p2">P2</td><td>주가 fanout의 task cardinality 상한과 chunking 적용</td><td>한 stockId가 매우 많은 포트폴리오를 가지면 <code>tasks</code>, <code>stockHoldings</code>, valuation list가 메모리에 한 번에 만들어진다.</td><td>대형 종목 fanout에서 heap spike와 Redis pipeline payload 폭증을 막는다. stockId 또는 portfolio task를 일정 크기로 chunking하고 phase metric에 chunk index/size를 남긴다.</td></tr>
+              <tr><td class="priority p2">P2</td><td>dirty set write-back consumer 또는 운영 계약 문서화</td><td><code>RedisValuationRepositoryAdapter</code>는 dirty set에 쓰지만 이 repository에서 dirty set을 읽어 DB에 반영하는 active code는 확인되지 않는다.</td><td>Redis snapshot이 최종 저장소가 아니라면 write-back lag/누락이 장애가 된다. 별도 서비스가 담당한다면 SLA와 key contract를 명확히 해야 한다.</td></tr>
+              <tr><td class="priority p2">P2</td><td>포트폴리오 hash writer 충돌 정리</td><td><code>pf:{id}</code>는 state store가 <code>cvp/pv/ac/u</code>를 갱신하고 valuation adapter가 <code>cv/pr/ua/del</code>을 갱신한다.</td><td>동일 hash에 운영 상태와 snapshot 필드가 섞여 있어 장애 분석이 어렵다. key 분리 또는 field ownership table을 강제하면 유지보수성이 좋아진다.</td></tr>
+              <tr><td class="priority p3">P3</td><td>미사용 <code>profitRecalculationExecutor</code> 정리 또는 실제 사용</td><td><code>ProfitRecalculationExecutorConfig</code> bean은 존재하지만 main code에서 참조가 확인되지 않는다.</td><td>사용하지 않는 병렬 설정은 운영자가 실제 처리량에 영향을 준다고 오해할 수 있다. 삭제하거나, fanout chunk 병렬화에 연결할 때 backpressure 정책까지 함께 설계한다.</td></tr>
+              <tr><td class="priority p3">P3</td><td>Monolith HTTP client 역할 재검토</td><td><code>MonolithHttpClient</code>와 <code>MonolithClient</code> port는 존재하지만 main application service에서 참조되지 않는다.</td><td>초기 cache bootstrap 용도라면 bootstrap path를 명시하고, 더 이상 쓰지 않는다면 삭제해 아키텍처를 단순화한다.</td></tr>
+            </tbody>
+          </table>
+          <div class="callout"><strong>가장 먼저 볼 병목:</strong> Prometheus에서 <code>profit.worker.phase.duration{phase="reverse_index_lookup"}</code>, <code>pipeline_get_stock_holdings</code>, <code>pipeline_hincrbyfloat_hmget_portfolio</code>, <code>pipeline_save_*_price_updates</code>를 함께 보면 가격 이벤트 fanout의 병목이 조회·계산·쓰기 중 어디인지 분리된다.</div>
+        </section>
+      </div>
+    </div>
+
+    <p class="footer">Generated from repository code: Kafka consumers, application services, Redis adapters, metrics, and application configuration.</p>
+  </main>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'base',
+      securityLevel: 'loose',
+      themeVariables: {
+        fontFamily: 'IBM Plex Sans KR, sans-serif',
+        primaryColor: '#fff8e8',
+        primaryTextColor: '#101820',
+        primaryBorderColor: '#c66b2d',
+        lineColor: '#c66b2d',
+        secondaryColor: '#e8fff8',
+        tertiaryColor: '#101820',
+        noteBkgColor: '#fff0d6',
+        noteTextColor: '#101820'
+      }
+    });
+  </script>
+</body>
+</html>
