@@ -2,6 +2,7 @@
 
 Kafka 가격 이벤트를 소비하여 포트폴리오/유저 수익률을 실시간 재계산하고 Redis에 저장하는 워커 서비스입니다.
 
+### 서비스 아키텍처
 <img width="1382" height="1042" alt="제목 없는 다이어그램 drawio" src="https://github.com/user-attachments/assets/12d0a566-7a27-45db-a3dc-fb8d91a34d16" />
 
 
